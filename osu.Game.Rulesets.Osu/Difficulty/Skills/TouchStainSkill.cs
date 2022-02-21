@@ -16,21 +16,26 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
     /// </summary>
     public class TouchStrainSkill : OsuStrainSkill
     {
-        protected override int HistoryLength => sequence_length + min_previous;
-
         private readonly ReverseQueue<DifficultyHitObject>[] history =
         {
             new ReverseQueue<DifficultyHitObject>(hand_history_length),
             new ReverseQueue<DifficultyHitObject>(hand_history_length)
         };
 
-        private const int sequence_length = 5;
         private const int hand_history_length = 32;
-        private const int min_previous = 3;
 
-        // The actions utilized are bitmasked into an integer
+        private readonly HitObject[] last = new HitObject[2];
+        private readonly HitObject[] lastLast = new HitObject[2];
+
         private const int l = 0;
+
         private const int r = 1;
+
+        // We keep an array of actions for convenience in code
+        private readonly int[] actions =
+        {
+            l, r
+        };
 
         private const double aim_multiplier = 26.25;
         private const double aim_decay = 0.15;
@@ -50,25 +55,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const double coordination_aim_decay_strength = 3;
         private const double coordination_speed_decay_strength = 3;
 
-        // We keep an array of actions for convenience in code
-        private readonly int[] actions =
-        {
-            l, r
-        };
-
         private readonly double clockRate;
         private readonly double greatWindow;
         private readonly bool withSliders;
 
         // Having the weighted strain of the most recent note stored globally to determine the initial strain of each strain section
-        private double weightedAimStrain = 1;
-        private double weightedSpeedStrain = 1;
-        private double currentRhythm;
-
-        // The aim, speed, and likelihood of each sequence are stored in an array with each index representing the bitmask of the sequence
-        private readonly double[] sequenceAimStrain = new double[1 << sequence_length];
-        private readonly double[] sequenceSpeedStrain = new double[1 << sequence_length];
-        private readonly double[] likelihood = new double[1 << sequence_length]; // Should add up to 1.0
+        private double currentAim = 1;
+        private double currentSpeed = 1;
+        private double currentRhythm = 1;
 
         public TouchStrainSkill(Mod[] mods, double clockRate, double hitWindowGreat, bool withSliders)
             : base(mods)
@@ -76,191 +70,86 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             greatWindow = hitWindowGreat;
             this.withSliders = withSliders;
             this.clockRate = clockRate;
-
-            // Setting the initial strain of each sequence to 1
-            for (int i = 0; i < 1 << sequence_length; i++)
-            {
-                sequenceAimStrain[i] = 1;
-                sequenceSpeedStrain[i] = 1;
-            }
-
-            // The likelihood of hitting the first note with either hand is 50%
-            likelihood[l] = 0.5;
-            likelihood[r] = 0.5;
         }
 
         protected override double CalculateInitialStrain(double time)
         {
             double timeDifference = time - Previous[0].StartTime;
-            return curveStrain(weightedAimStrain * decay(aim_decay, timeDifference),
-                weightedSpeedStrain * currentRhythm * decay(speed_decay, timeDifference));
+            return curveStrain(currentAim * decay(aim_decay, timeDifference),
+                currentSpeed * currentRhythm * decay(speed_decay, timeDifference));
         }
 
-        protected override double StrainValueAt(DifficultyHitObject current)
+        protected override double StrainValueAt(DifficultyHitObject rawCurrent)
         {
-            weightedAimStrain = 0;
-            weightedSpeedStrain = 0;
-
-            double[] newAimStrain = new double[1 << sequence_length];
-            double[] newSpeedStrain = new double[1 << sequence_length];
-            double[] newlikelihood = new double[1 << sequence_length];
-            int currentSequenceLength = Math.Min(sequence_length, Previous.Count + 1);
-
-            // Performing a weighted sum of all sequences, simulating hitting the current note with either the left or right hand
-            for (int i = 0; i < 1 << currentSequenceLength; i++)
+            if (last[l] != null && last[r] != null)
             {
-                // The strain of the sequence being added to is decayed
-                double prevAim = sequenceAimStrain[i] * decay(aim_decay, current.DeltaTime);
-                double prevSpeed = sequenceSpeedStrain[i] * decay(speed_decay, current.DeltaTime);
-                // The raw aim and speed at the current note for each action is stored
+                var currentObject = rawCurrent.BaseObject;
+                double prevAim = currentAim * decay(aim_decay, rawCurrent.DeltaTime);
+                double prevSpeed = currentSpeed * decay(speed_decay, rawCurrent.DeltaTime);
+
+                OsuDifficultyHitObject[] current = new OsuDifficultyHitObject[2];
                 double[] rawAim = new double[2];
                 double[] rawSpeed = new double[2];
+                double[] rawRhythm = new double[2];
 
-                foreach (var hand in actions)
+                foreach (int hand in actions)
                 {
-                    HitObject[] trueHistory = new HitObject[currentSequenceLength + min_previous];
-                    trueHistory[0] = current.LastObject;
+                    int otherHand = hand ^ 1;
+                    current[hand] = new OsuDifficultyHitObject(currentObject, lastLast[hand], last[hand], clockRate);
+                    // Adding a hand-coordination bonus based on time since the last hand "swap"
+                    double aimBonus = 1;
+                    double speedBonus = 1;
+                    double angleBonus = 1;
 
-                    for (int j = 1; j < currentSequenceLength + min_previous; j++)
+                    // Increases aim coordination bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
+                    var swapStrain = new OsuDifficultyHitObject(currentObject, last[hand], last[otherHand], clockRate);
+                    double? angle = swapStrain.Angle;
+
+                    if (angle != null)
                     {
-                        if (j <= Previous.Count)
-                        {
-                            var previous = Previous[j - 1].LastObject;
-                            trueHistory[j] = previous;
-                        }
+                        angleBonus += 1 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
                     }
 
-                    // Identifying relevant HitObject indexes from the bitmask sequence
-                    HitObject[] lastSame = new HitObject[min_previous];
-                    HitObject lastSwap = null;
-                    int mostRecentSame = 0;
+                    double ms = swapStrain.StrainTime;
+                    ms = Math.Min(Math.Max(ms, coordination_bonus_end), coordination_bonus_start);
+                    aimBonus += coordination_aim_max_bonus * Math.Pow(coordination_bonus_start - ms, coordination_aim_decay_strength)
+                                / Math.Pow(coordination_bonus_start - coordination_bonus_end, coordination_aim_decay_strength);
+                    speedBonus += coordination_speed_max_bonus * Math.Pow(coordination_bonus_start - ms, coordination_speed_decay_strength)
+                                  / Math.Pow(coordination_bonus_start - coordination_bonus_end, coordination_speed_decay_strength);
 
-                    for (int j = 0; j < currentSequenceLength; j++)
-                    {
-                        int lastHand = (i >> j) & 1;
-
-                        if (mostRecentSame < min_previous && lastHand == hand)
-                        {
-                            lastSame[mostRecentSame] = trueHistory[j];
-                            mostRecentSame++;
-                        }
-                        else if (lastSwap == null) lastSwap = trueHistory[j];
-                    }
-
-                    // Searching previous objects beyond the bitmask length if the requirement of three previous objects has not been met
-                    int mostRecent = currentSequenceLength;
-
-                    while (mostRecentSame < min_previous && mostRecent < Previous.Count)
-                    {
-                        lastSame[mostRecentSame] = trueHistory[mostRecent];
-                        mostRecentSame++;
-                        mostRecent++;
-                    }
-
-                    if (mostRecentSame != 0)
-                    {
-                        // Calculating the individual strains
-                        DifficultyHitObject simulatedCurrent = new OsuDifficultyHitObject(current.BaseObject, lastSame[1], lastSame[0], clockRate);
-                        DifficultyHitObject simulatedPrevious = lastSame[1] == null ? null : new OsuDifficultyHitObject(lastSame[0], lastSame[2], lastSame[1], clockRate);
-                        DifficultyHitObject simulatedPreviousPrevious = lastSame[2] == null ? null : new OsuDifficultyHitObject(lastSame[1], null, lastSame[2], clockRate);
-                        // Adding a hand-coordination bonus based on time since the last hand "swap"
-                        double aimBonus = 1;
-                        double speedBonus = 1;
-                        double angleBonus = 1;
-
-                        if (lastSwap != null)
-                        {
-                            // Increases aim coordination bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
-                            var angle = new OsuDifficultyHitObject(current.BaseObject, lastSame[0], lastSwap, clockRate).Angle;
-
-                            if (angle != null)
-                            {
-                                angleBonus += 1 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
-                            }
-
-                            double ms = new OsuDifficultyHitObject(current.BaseObject, null, lastSwap, clockRate).StrainTime;
-                            ms = Math.Min(Math.Max(ms, coordination_bonus_end), coordination_bonus_start);
-                            aimBonus += coordination_aim_max_bonus * Math.Pow(coordination_bonus_start - ms, coordination_aim_decay_strength)
-                                        / Math.Pow(coordination_bonus_start - coordination_bonus_end, coordination_aim_decay_strength);
-                            speedBonus += coordination_speed_max_bonus * Math.Pow(coordination_bonus_start - ms, coordination_speed_decay_strength)
-                                          / Math.Pow(coordination_bonus_start - coordination_bonus_end, coordination_speed_decay_strength);
-                        }
-
-                        rawAim[hand] = aimBonus * aim_multiplier * Math.Pow(calcAim(simulatedCurrent, simulatedPrevious, simulatedPreviousPrevious), angleBonus);
-                        rawSpeed[hand] = speedBonus * speed_multiplier * calcSpeed(simulatedCurrent, simulatedPrevious);
-                    }
+                    rawAim[hand] = aimBonus * aim_multiplier * Math.Pow(calcAim(current[hand], hand), angleBonus);
+                    rawSpeed[hand] = speedBonus * speed_multiplier * calcSpeed(current[hand], hand);
+                    rawRhythm[hand] = calculateRhythmBonus(current[hand], hand);
                 }
 
-                double leftStrain = curveStrain(rawAim[l], rawSpeed[l]);
-                double rightStrain = curveStrain(rawAim[r], rawSpeed[r]);
+                double leftStrain = curveStrain(prevAim + rawAim[l], (prevSpeed + rawSpeed[l]) * rawRhythm[l]);
+                double rightStrain = curveStrain(prevAim + rawAim[r], (prevSpeed + rawSpeed[r]) * rawRhythm[r]);
 
-                // Chance of hitting the current note with either action is a ratio
-                double[] chances = new double[2];
-                chances[l] = Math.Abs(leftStrain + rightStrain) <= double.Epsilon ? 0.5 : curveProbability(rightStrain / (leftStrain + rightStrain));
-                chances[r] = 1.0 - chances[l];
+                int chosenHand = leftStrain < rightStrain ? l : r;
+                currentAim = prevAim + rawAim[chosenHand];
+                currentSpeed = prevSpeed + rawSpeed[chosenHand];
+                currentRhythm = rawRhythm[chosenHand];
 
-                foreach (var hand in actions)
-                {
-                    int newSequence = appendAction(i, hand);
-                    double chance = chances[hand] * likelihood[i];
-                    newlikelihood[newSequence] += chance;
+                while (history[chosenHand].Count > hand_history_length)
+                    history[chosenHand].Dequeue();
+                history[chosenHand].Enqueue(current[chosenHand]);
 
-                    // Pushing the strain to the new sequence, starting from the current note
-                    newAimStrain[newSequence] += chance * (prevAim + rawAim[hand]);
-                    newSpeedStrain[newSequence] += chance * (prevSpeed + rawSpeed[hand]);
-                    // Pushing the strain to the overall weighted aim and speed of the current note
-                    weightedAimStrain += chance * (prevAim + rawAim[hand]);
-                    weightedSpeedStrain += chance * (prevSpeed + rawSpeed[hand]);
-                }
+                lastLast[chosenHand] = last[chosenHand];
+                last[chosenHand] = currentObject;
             }
-
-            int newSequenceLength = Math.Min(sequence_length, currentSequenceLength + 1);
-
-            // Dividing by the likelihood to return the weighted average of all past sequences that contributed to the current one
-            for (int i = 0; i < 1 << newSequenceLength; i++)
+            else
             {
-                if (newlikelihood[i] > double.Epsilon)
-                {
-                    newAimStrain[i] /= newlikelihood[i];
-                    newSpeedStrain[i] /= newlikelihood[i];
-                }
+                last[l] = rawCurrent.BaseObject;
+                last[r] = rawCurrent.LastObject;
             }
-
-            double[] finalLikelihood = new double[2];
-
-            // Identifing overall likelyhood of hitting the current note with either hand
-            for (int i = 0; i < 1 << newSequenceLength; i++)
-            {
-                finalLikelihood[i & 1] += newlikelihood[i];
-            }
-
-            // Calculating rhythmic bonus based on the previous 32 notes most likely to be hit with the recent hand
-            int recentHand = finalLikelihood[l] < finalLikelihood[r] ? r : l;
-            var simulatedLast = history[recentHand].Count > 0 ? history[recentHand][0].BaseObject : null;
-            var simulatedLastLast = history[recentHand].Count > 1 ? history[recentHand][1].BaseObject : null;
-            var simulatedBase = simulatedLast == null ? current : new OsuDifficultyHitObject(current.BaseObject, simulatedLastLast, simulatedLast, clockRate);
-            currentRhythm = calculateRhythmBonus(simulatedBase, recentHand);
-
-            while (history[recentHand].Count > hand_history_length)
-                history[recentHand].Dequeue();
-            history[recentHand].Enqueue(simulatedBase);
-
-            // Updating the cached arrays
-            Array.Copy(newAimStrain, sequenceAimStrain, 1 << sequence_length);
-            Array.Copy(newSpeedStrain, sequenceSpeedStrain, 1 << sequence_length);
-            Array.Copy(newlikelihood, likelihood, 1 << sequence_length);
 
             // Curving the aim and speed strains to better match old values
-            return overall_multiplier * curveStrain(weightedAimStrain, currentRhythm * weightedSpeedStrain);
+            return overall_multiplier * curveStrain(currentAim, currentSpeed * currentRhythm);
         }
-
-        private double curveProbability(double chance) => chance <= 0.5 ? Math.Pow(2 * chance, 4) / 2 : 1 - Math.Pow(2 * (1 - chance), 4) / 2;
 
         private double decay(double decayBase, double ms) => Math.Pow(decayBase, ms / 1000);
 
         private double curveStrain(double aimStrain, double speedStrain) => Math.Pow(Math.Pow(aimStrain, 3.0 / 2.0) + Math.Pow(speedStrain, 3.0 / 2.0), 2.0 / 3.0);
-
-        private int appendAction(int oldSequence, int toAppend) => ((oldSequence << 1) | toAppend) & ((1 << sequence_length) - 1);
 
         /// <summary>
         /// Calculates a rhythm multiplier for the difficulty of the tap associated with historic data of the current <see cref="OsuDifficultyHitObject"/>.
@@ -359,19 +248,21 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         /// <summary>
         /// Represents the skill required to correctly aim at every object in the map with one hand, using a uniform CircleSize and normalized distances.
         /// </summary>
-        private double calcAim(DifficultyHitObject current, DifficultyHitObject previous, DifficultyHitObject previousPrevious)
+        private double calcAim(DifficultyHitObject current, int hand)
         {
             const double wide_angle_multiplier = 1.5;
             const double acute_angle_multiplier = 2.0;
             const double slider_multiplier = 1.5;
             const double velocity_change_multiplier = 0.75;
 
-            if (current.BaseObject is Spinner || previousPrevious == null || previous.BaseObject is Spinner)
+            var truePrevious = history[hand];
+
+            if (current.BaseObject is Spinner || truePrevious.Count <= 1 || truePrevious[0].BaseObject is Spinner)
                 return 0;
 
             var osuCurrObj = (OsuDifficultyHitObject)current;
-            var osuLastObj = (OsuDifficultyHitObject)previous;
-            var osuLastLastObj = (OsuDifficultyHitObject)previousPrevious;
+            var osuLastObj = (OsuDifficultyHitObject)truePrevious[0];
+            var osuLastLastObj = (OsuDifficultyHitObject)truePrevious[1];
 
             // Calculate the velocity to the current hitobject, which starts with a base distance / time assuming the last object is a hitcircle.
             double currVelocity = osuCurrObj.LazyJumpDistance / osuCurrObj.StrainTime;
@@ -478,7 +369,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         /// <summary>
         /// Represents the skill required to tap with one finger with regards to keeping up with the speed at which objects need to be hit.
         /// </summary>
-        private double calcSpeed(DifficultyHitObject current, DifficultyHitObject previous)
+        private double calcSpeed(DifficultyHitObject current, int hand)
         {
             const double single_spacing_threshold = 125;
 
@@ -488,9 +379,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             if (current.BaseObject is Spinner)
                 return 0;
 
+            var truePrevious = history[hand];
             // derive strainTime for calculation
             var osuCurrObj = (OsuDifficultyHitObject)current;
-            var osuPrevObj = (OsuDifficultyHitObject)previous;
+            var osuPrevObj = truePrevious.Count > 0 ? (OsuDifficultyHitObject)truePrevious[0] : null;
 
             double strainTime = osuCurrObj.StrainTime / singletap_adjust;
             double greatWindowFull = greatWindow * 2;
