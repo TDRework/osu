@@ -65,6 +65,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private double weightedSpeedStrain = 1;
         private double currentRhythm;
 
+        private int recentHand = l;
+
         // The aim, speed, and likelihood of each sequence are stored in an array with each index representing the bitmask of the sequence
         private readonly double[] sequenceAimStrain = new double[1 << sequence_length];
         private readonly double[] sequenceSpeedStrain = new double[1 << sequence_length];
@@ -85,8 +87,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             }
 
             // The likelihood of hitting the first note with either hand is 50%
-            likelihood[l] = 0.0;
-            likelihood[r] = 1.0;
+            likelihood[l] = 0.5;
+            likelihood[r] = 0.5;
         }
 
         protected override double CalculateInitialStrain(double time)
@@ -228,14 +230,20 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
             double[] finalLikelihood = new double[2];
 
-            // Identifing overall likelyhood of hitting the current note with either hand
+            // Identifing overall likelyhood of swapping hands
             for (int i = 0; i < 1 << newSequenceLength; i++)
             {
-                finalLikelihood[i & 1] += newlikelihood[i];
+                int lastHand = i & 1;
+                int lastLastHand = (i >> 1) & 1;
+                int sameHand = lastHand ^ lastLastHand;
+                finalLikelihood[sameHand] += newlikelihood[i];
             }
 
+            double swap = finalLikelihood[1], notSwap = finalLikelihood[0];
             // Calculating rhythmic bonus based on the previous 32 notes most likely to be hit with the recent hand
-            int recentHand = finalLikelihood[l] < finalLikelihood[r] ? r : l;
+            if (swap >= notSwap)
+                recentHand ^= 1;
+
             var simulatedLast = history[recentHand].Count > 0 ? history[recentHand][0].BaseObject : null;
             var simulatedLastLast = history[recentHand].Count > 1 ? history[recentHand][1].BaseObject : null;
             var simulatedBase = simulatedLast == null ? current : new OsuDifficultyHitObject(current.BaseObject, simulatedLastLast, simulatedLast, clockRate);
