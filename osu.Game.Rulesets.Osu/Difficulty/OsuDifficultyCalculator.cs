@@ -37,8 +37,11 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double aimRatingNoSliders = Math.Sqrt(skills[1].DifficultyValue()) * difficulty_multiplier;
             double speedRating = Math.Sqrt(skills[2].DifficultyValue()) * difficulty_multiplier;
             double flashlightRating = Math.Sqrt(skills[3].DifficultyValue()) * difficulty_multiplier;
+            double touchRating = Math.Sqrt(skills[4].DifficultyValue()) * difficulty_multiplier;
+            double touchRatingNoSliders = Math.Sqrt(skills[5].DifficultyValue()) * difficulty_multiplier;
 
             double sliderFactor = aimRating > 0 ? aimRatingNoSliders / aimRating : 1;
+            double touchSliderFactor = touchRating > 0 ? touchRatingNoSliders / touchRating : 1;
 
             if (mods.Any(h => h is OsuModRelax))
                 speedRating = 0.0;
@@ -76,8 +79,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 Mods = mods,
                 AimDifficulty = aimRating,
                 SpeedDifficulty = speedRating,
+                TouchDifficulty = touchRating,
                 FlashlightDifficulty = flashlightRating,
                 SliderFactor = sliderFactor,
+                TouchSliderFactor = touchSliderFactor,
                 ApproachRate = preempt > 1200 ? (1800 - preempt) / 120 : (1200 - preempt) / 150 + 5,
                 OverallDifficulty = (80 - hitWindowGreat) / 6,
                 DrainRate = drainRate,
@@ -114,7 +119,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 new Aim(mods, true),
                 new Aim(mods, false),
                 new Speed(mods, hitWindowGreat),
-                new Flashlight(mods)
+                new Flashlight(mods),
+                new TouchStrainSkill(mods, clockRate, hitWindowGreat, true),
+                new TouchStrainSkill(mods, clockRate, hitWindowGreat, false),
             };
         }
 

@@ -25,6 +25,12 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         public double SpeedDifficulty { get; set; }
 
         /// <summary>
+        /// The difficulty corresponding to the touch skill.
+        /// </summary>
+        [JsonProperty("speed_difficulty")]
+        public double TouchDifficulty { get; set; }
+
+        /// <summary>
         /// The difficulty corresponding to the flashlight skill.
         /// </summary>
         [JsonProperty("flashlight_difficulty")]
@@ -37,6 +43,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         /// </summary>
         [JsonProperty("slider_factor")]
         public double SliderFactor { get; set; }
+
+        /// <summary>
+        /// Describes how much of <see cref="TouchDifficulty"/> is contributed to by hitcircles or sliders.
+        /// A value closer to 1.0 indicates most of <see cref="TouchDifficulty"/> is contributed by hitcircles.
+        /// A value closer to 0.0 indicates most of <see cref="TouchDifficulty"/> is contributed by sliders.
+        /// </summary>
+        [JsonProperty("slider_factor")]
+        public double TouchSliderFactor { get; set; }
 
         /// <summary>
         /// The perceived approach rate inclusive of rate-adjusting mods (DT/HT/etc).
