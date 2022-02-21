@@ -85,8 +85,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             }
 
             // The likelihood of hitting the first note with either hand is 50%
-            likelihood[l] = 0.5;
-            likelihood[r] = 0.5;
+            likelihood[l] = 0.0;
+            likelihood[r] = 1.0;
         }
 
         protected override double CalculateInitialStrain(double time)
