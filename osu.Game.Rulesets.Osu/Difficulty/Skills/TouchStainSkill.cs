@@ -32,7 +32,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const int l = 0;
         private const int r = 1;
 
-        private const double aim_multiplier = 26.25;
+        private const double aim_multiplier = 23.25;
         private const double aim_decay = 0.15;
 
         private const double speed_multiplier = 1375;
@@ -43,12 +43,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const double overall_multiplier = 0.92; // Multiplier for final value
 
         // Constants for hand-coordination bonuses
-        private const double coordination_bonus_start = 400;
-        private const double coordination_bonus_end = 75; // ~400BPM jump-speed
-        private const double coordination_aim_max_bonus = 0.8;
-        private const double coordination_speed_max_bonus = 0.2;
-        private const double coordination_aim_decay_strength = 3;
-        private const double coordination_speed_decay_strength = 3;
+        private const double coordination_aim_max_bonus = 0.5;
+        private const double coordination_speed_max_bonus = 0.18; // Exact constant such that fully alternating between two hands rewards as much as streams
 
         // We keep an array of actions for convenience in code
         private readonly int[] actions =
@@ -118,7 +114,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 double[] rawAim = new double[2];
                 double[] rawSpeed = new double[2];
 
-                foreach (var hand in actions)
+                foreach (int hand in actions)
                 {
                     HitObject[] trueHistory = new HitObject[currentSequenceLength + min_previous];
                     trueHistory[0] = current.LastObject;
@@ -159,7 +155,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                         mostRecent++;
                     }
 
-                    if (mostRecentSame != 0)
+                    if (mostRecentSame > 0)
                     {
                         // Calculating the individual strains
                         DifficultyHitObject simulatedCurrent = new OsuDifficultyHitObject(current.BaseObject, lastSame[1], lastSame[0], clockRate);
@@ -173,23 +169,19 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                         if (lastSwap != null)
                         {
                             // Increases aim coordination bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
-                            var angle = new OsuDifficultyHitObject(current.BaseObject, lastSame[0], lastSwap, clockRate).Angle;
-
+                            var simulatedSwap = new OsuDifficultyHitObject(current.BaseObject, lastSame[0], lastSwap, clockRate);
+                            double? angle = simulatedSwap.Angle;
                             if (angle != null)
-                            {
                                 angleBonus += 1 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
-                            }
 
-                            double ms = new OsuDifficultyHitObject(current.BaseObject, null, lastSwap, clockRate).StrainTime;
-                            ms = Math.Min(Math.Max(ms, coordination_bonus_end), coordination_bonus_start);
-                            aimBonus += coordination_aim_max_bonus * Math.Pow(coordination_bonus_start - ms, coordination_aim_decay_strength)
-                                        / Math.Pow(coordination_bonus_start - coordination_bonus_end, coordination_aim_decay_strength);
-                            speedBonus += coordination_speed_max_bonus * Math.Pow(coordination_bonus_start - ms, coordination_speed_decay_strength)
-                                          / Math.Pow(coordination_bonus_start - coordination_bonus_end, coordination_speed_decay_strength);
+                            double coordinationFactor = simulatedCurrent.DeltaTime / (simulatedCurrent.DeltaTime + simulatedSwap.DeltaTime);
+                            coordinationFactor = Math.Min(1, 3.5 * Math.Pow(coordinationFactor, 3));
+                            aimBonus += coordination_aim_max_bonus * coordinationFactor;
+                            speedBonus += coordination_speed_max_bonus * coordinationFactor;
                         }
 
-                        rawAim[hand] = aimBonus * aim_multiplier * Math.Pow(calcAim(simulatedCurrent, simulatedPrevious, simulatedPreviousPrevious), angleBonus);
-                        rawSpeed[hand] = speedBonus * speed_multiplier * calcSpeed(simulatedCurrent, simulatedPrevious);
+                        rawAim[hand] = aim_multiplier * Math.Pow(aimBonus * calcAim(simulatedCurrent, simulatedPrevious, simulatedPreviousPrevious), angleBonus);
+                        rawSpeed[hand] = speed_multiplier * speedBonus * calcSpeed(simulatedCurrent, simulatedPrevious);
                     }
                 }
 
@@ -201,7 +193,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 chances[l] = Math.Abs(leftStrain + rightStrain) <= double.Epsilon ? 0.5 : curveProbability(rightStrain / (leftStrain + rightStrain));
                 chances[r] = 1.0 - chances[l];
 
-                foreach (var hand in actions)
+                foreach (int hand in actions)
                 {
                     int newSequence = appendAction(i, hand);
                     double chance = chances[hand] * likelihood[i];
