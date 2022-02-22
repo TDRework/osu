@@ -32,8 +32,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
         private double currentStrain;
 
-        private double skillMultiplier => 23.25;
-        private double strainDecayBase => 0.15;
+        internal double SkillMultiplier => 23.25;
+        internal double StrainDecayBase => 0.15;
 
         internal double StrainValueOf(DifficultyHitObject current, ReverseQueue<DifficultyHitObject> previous)
         {
@@ -151,14 +151,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
         private double applyDiminishingExp(double val) => Math.Pow(val, 0.99);
 
-        private double strainDecay(double ms) => Math.Pow(strainDecayBase, ms / 1000);
+        private double strainDecay(double ms) => Math.Pow(StrainDecayBase, ms / 1000);
 
         protected override double CalculateInitialStrain(double time) => currentStrain * strainDecay(time - Previous[0].StartTime);
 
         protected override double StrainValueAt(DifficultyHitObject current)
         {
             currentStrain *= strainDecay(current.DeltaTime);
-            currentStrain += StrainValueOf(current, Previous) * skillMultiplier;
+            currentStrain += StrainValueOf(current, Previous) * SkillMultiplier;
 
             return currentStrain;
         }

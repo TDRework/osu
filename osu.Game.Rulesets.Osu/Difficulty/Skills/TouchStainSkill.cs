@@ -22,12 +22,6 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const int l = 0;
         private const int r = 1;
 
-        private const double aim_multiplier = 23.25;
-        private const double aim_decay = 0.15;
-
-        private const double speed_multiplier = 1375;
-        private const double speed_decay = 0.3;
-
         private const double overall_multiplier = 0.97; // Multiplier for final value
 
         // Constants for hand-coordination bonuses
@@ -94,9 +88,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         {
             double timeDifference = time - Previous[0].StartTime;
             if (calculatingAim)
-                return overall_multiplier * weightedAimStrain * decay(aim_decay, timeDifference);
+                return overall_multiplier * weightedAimStrain * decay(aimSkill.StrainDecayBase, timeDifference);
 
-            return overall_multiplier * weightedRhythm * weightedSpeedStrain * decay(speed_decay, timeDifference);
+            return overall_multiplier * weightedRhythm * weightedSpeedStrain * decay(speedSkill.StrainDecayBase, timeDifference);
         }
 
         protected override double StrainValueAt(DifficultyHitObject current)
@@ -126,8 +120,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             for (int i = 0; i < 1 << currentSequenceLength; i++)
             {
                 // The strain of the sequence being added to is decayed
-                double prevAim = sequenceAimStrain[i] * decay(aim_decay, current.DeltaTime);
-                double prevSpeed = sequenceSpeedStrain[i] * decay(speed_decay, current.DeltaTime);
+                double prevAim = sequenceAimStrain[i] * decay(aimSkill.StrainDecayBase, current.DeltaTime);
+                double prevSpeed = sequenceSpeedStrain[i] * decay(speedSkill.StrainDecayBase, current.DeltaTime);
                 // The raw aim and speed at the current note for each action is stored
                 double[] rawAim = new double[2];
                 double[] rawSpeed = new double[2];
@@ -202,8 +196,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             speedBonus += coordination_speed_max_bonus * coordinationFactor;
                         }
 
-                        rawAim[hand] = aim_multiplier * Math.Pow(aimBonus * aimSkill.StrainValueOf(simulatedCurrent, simulatedPrevious), angleBonus);
-                        rawSpeed[hand] = speed_multiplier * speedBonus * speedSkill.StrainValueOf(simulatedCurrent, simulatedPrevious);
+                        rawAim[hand] = aimSkill.SkillMultiplier * Math.Pow(aimBonus * aimSkill.StrainValueOf(simulatedCurrent, simulatedPrevious), angleBonus);
+                        rawSpeed[hand] = speedSkill.SkillMultiplier * speedBonus * speedSkill.StrainValueOf(simulatedCurrent, simulatedPrevious);
                         rawRhythm[hand] = speedSkill.CalculateRhythmBonus(simulatedCurrent, simulatedPrevious);
                     }
                 }

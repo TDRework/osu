@@ -23,8 +23,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const double speed_balancing_factor = 40;
         private const double singletap_adjust = 1.7; // Difficulty multiplier between singletapping and alternating
 
-        private double skillMultiplier => 1375;
-        private double strainDecayBase => 0.3;
+        internal double SkillMultiplier => 1375;
+        internal double StrainDecayBase => 0.3;
 
         private double currentStrain;
         private double currentRhythm;
@@ -170,14 +170,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             return (speedBonus + speedBonus * Math.Pow(distance / single_spacing_threshold, 3.5)) / strainTime;
         }
 
-        private double strainDecay(double ms) => Math.Pow(strainDecayBase, ms / 1000);
+        private double strainDecay(double ms) => Math.Pow(StrainDecayBase, ms / 1000);
 
         protected override double CalculateInitialStrain(double time) => (currentStrain * currentRhythm) * strainDecay(time - Previous[0].StartTime);
 
         protected override double StrainValueAt(DifficultyHitObject current)
         {
             currentStrain *= strainDecay(current.DeltaTime);
-            currentStrain += StrainValueOf(current, Previous) * skillMultiplier;
+            currentStrain += StrainValueOf(current, Previous) * SkillMultiplier;
 
             currentRhythm = CalculateRhythmBonus(current, Previous);
 
