@@ -7,7 +7,6 @@ using osu.Game.Rulesets.Difficulty.Utils;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Objects;
 using osu.Game.Rulesets.Osu.Difficulty.Preprocessing;
-using osu.Game.Rulesets.Osu.Objects;
 
 namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 {
@@ -29,8 +28,6 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const double speed_multiplier = 1375;
         private const double speed_decay = 0.3;
 
-        private const double singletap_adjust = 1.7; // Difficulty multiplier between singletapping and alternating
-
         private const double overall_multiplier = 0.97; // Multiplier for final value
 
         // Constants for hand-coordination bonuses
@@ -44,8 +41,6 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         };
 
         private readonly double clockRate;
-        private readonly double greatWindow;
-        private readonly bool withSliders;
         private readonly bool calculatingAim;
 
         // Having the weighted strain of the most recent note stored globally to determine the initial strain of each strain section
@@ -58,6 +53,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private readonly double[] sequenceSpeedStrain = new double[1 << sequence_length];
         private readonly double[] likelihood = new double[1 << sequence_length]; // Should add up to 1.0
         private readonly long[] fullSequence = new long[1 << sequence_length]; // Contains full sequence up to 63 notes to maintain approximate precision
+        private readonly Aim aimSkill;
+        private readonly Speed speedSkill;
 
         // Constant table for fast base-2 logarithm calculation
         private readonly int[] logTable =
@@ -75,8 +72,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         public TouchStrainSkill(Mod[] mods, double clockRate, double hitWindowGreat, bool withSliders, bool calculatingAim)
             : base(mods)
         {
-            greatWindow = hitWindowGreat;
-            this.withSliders = withSliders;
+            aimSkill = new Aim(mods, withSliders);
+            speedSkill = new Speed(mods, hitWindowGreat, true);
             this.clockRate = clockRate;
             this.calculatingAim = calculatingAim;
 
@@ -205,9 +202,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             speedBonus += coordination_speed_max_bonus * coordinationFactor;
                         }
 
-                        rawAim[hand] = aim_multiplier * Math.Pow(aimBonus * calcAim(simulatedCurrent, simulatedPrevious), angleBonus);
-                        rawSpeed[hand] = speed_multiplier * speedBonus * calcSpeed(simulatedCurrent, simulatedPrevious);
-                        rawRhythm[hand] = calculateRhythmBonus(simulatedCurrent, simulatedPrevious);
+                        rawAim[hand] = aim_multiplier * Math.Pow(aimBonus * aimSkill.StrainValueOf(simulatedCurrent, simulatedPrevious), angleBonus);
+                        rawSpeed[hand] = speed_multiplier * speedBonus * speedSkill.StrainValueOf(simulatedCurrent, simulatedPrevious);
+                        rawRhythm[hand] = speedSkill.CalculateRhythmBonus(simulatedCurrent, simulatedPrevious);
                     }
                 }
 
@@ -275,263 +272,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
         private long appendHistory(long oldSequence, long toAppend) => ((oldSequence << 1) | toAppend) & ((1 << HistoryLength) - 1);
 
-        private int rightmostBitLocation(long value)
-        {
-            return fastLog2((ulong)(value & -value));
-        }
+        private int rightmostBitLocation(long value) => fastLog2((ulong)(value & -value));
 
         private int fastLog2(ulong value) => logTable[(int)((value * 0x07EDD5E59A4E28C2) >> 58)];
-
-        /// <summary>
-        /// Calculates a rhythm multiplier for the difficulty of the tap associated with historic data of the current <see cref="OsuDifficultyHitObject"/>.
-        /// </summary>
-        private double calculateRhythmBonus(DifficultyHitObject current, ReverseQueue<DifficultyHitObject> previous)
-        {
-            const double rhythm_multiplier = 0.75;
-            const int history_time_max = 5000; // 5 seconds of calculatingRhythmBonus max.
-            if (current.BaseObject is Spinner)
-                return 0;
-
-            int previousIslandSize = 0;
-
-            double rhythmComplexitySum = 0;
-            int islandSize = 1;
-            double startRatio = 0; // store the ratio of the current start of an island to buff for tighter rhythms
-
-            bool firstDeltaSwitch = false;
-
-            int rhythmStart = 0;
-
-            while (rhythmStart < previous.Count - 2 && current.StartTime - previous[rhythmStart].StartTime < history_time_max)
-                rhythmStart++;
-
-            for (int i = rhythmStart; i > 0; i--)
-            {
-                OsuDifficultyHitObject currObj = (OsuDifficultyHitObject)previous[i - 1];
-                OsuDifficultyHitObject prevObj = (OsuDifficultyHitObject)previous[i];
-                OsuDifficultyHitObject lastObj = (OsuDifficultyHitObject)previous[i + 1];
-
-                double currHistoricalDecay = (history_time_max - (current.StartTime - currObj.StartTime)) / history_time_max; // scales note 0 to 1 from history to now
-
-                currHistoricalDecay = Math.Min((double)(previous.Count - i) / previous.Count, currHistoricalDecay); // either we're limited by time or limited by object count.
-
-                double currDelta = currObj.StrainTime;
-                double prevDelta = prevObj.StrainTime;
-                double lastDelta = lastObj.StrainTime;
-                double currRatio = 1.0 + 6.0 * Math.Min(0.5,
-                    Math.Pow(Math.Sin(Math.PI / (Math.Min(prevDelta, currDelta) / Math.Max(prevDelta, currDelta))), 2)); // fancy function to calculate rhythmbonuses.
-
-                double windowPenalty = Math.Min(1, Math.Max(0, Math.Abs(prevDelta - currDelta) - greatWindow * 0.6) / (greatWindow * 0.6));
-
-                windowPenalty = Math.Min(1, windowPenalty);
-
-                double effectiveRatio = windowPenalty * currRatio;
-
-                if (firstDeltaSwitch)
-                {
-                    if (!(prevDelta > 1.25 * currDelta || prevDelta * 1.25 < currDelta))
-                    {
-                        if (islandSize < 7)
-                            islandSize++; // island is still progressing, count size.
-                    }
-                    else
-                    {
-                        if (previous[i - 1].BaseObject is Slider) // bpm change is into slider, this is easy acc window
-                            effectiveRatio *= 0.125;
-
-                        if (previous[i].BaseObject is Slider) // bpm change was from a slider, this is easier typically than circle -> circle
-                            effectiveRatio *= 0.25;
-
-                        if (previousIslandSize == islandSize) // repeated island size (ex: triplet -> triplet)
-                            effectiveRatio *= 0.25;
-
-                        if (previousIslandSize % 2 == islandSize % 2) // repeated island polartiy (2 -> 4, 3 -> 5)
-                            effectiveRatio *= 0.50;
-
-                        if (lastDelta > prevDelta + 10 && prevDelta > currDelta + 10) // previous increase happened a note ago, 1/1->1/2-1/4, dont want to buff this.
-                            effectiveRatio *= 0.125;
-
-                        rhythmComplexitySum += Math.Sqrt(effectiveRatio * startRatio) * currHistoricalDecay * Math.Sqrt(4 + islandSize) / 2 * Math.Sqrt(4 + previousIslandSize) / 2;
-
-                        startRatio = effectiveRatio;
-
-                        previousIslandSize = islandSize; // log the last island size.
-
-                        if (prevDelta * 1.25 < currDelta) // we're slowing down, stop counting
-                            firstDeltaSwitch = false; // if we're speeding up, this stays true and  we keep counting island size.
-
-                        islandSize = 1;
-                    }
-                }
-                else if (prevDelta > 1.25 * currDelta) // we want to be speeding up.
-                {
-                    // Begin counting island until we change speed again.
-                    firstDeltaSwitch = true;
-                    startRatio = effectiveRatio;
-                    islandSize = 1;
-                }
-            }
-
-            return Math.Sqrt(4 + rhythmComplexitySum * rhythm_multiplier) / 2; //produces multiplier that can be applied to strain. range [1, infinity) (not really though)
-        }
-
-        /// <summary>
-        /// Represents the skill required to correctly aim at every object in the map with one hand, using a uniform CircleSize and normalized distances.
-        /// </summary>
-        private double calcAim(DifficultyHitObject current, ReverseQueue<DifficultyHitObject> previous)
-        {
-            const double wide_angle_multiplier = 1.5;
-            const double acute_angle_multiplier = 2.0;
-            const double slider_multiplier = 1.5;
-            const double velocity_change_multiplier = 0.75;
-
-            if (current.BaseObject is Spinner || previous.Count <= 1 || previous[0].BaseObject is Spinner)
-                return 0;
-
-            var osuCurrObj = (OsuDifficultyHitObject)current;
-            var osuLastObj = (OsuDifficultyHitObject)previous[0];
-            var osuLastLastObj = (OsuDifficultyHitObject)previous[1];
-
-            // Calculate the velocity to the current hitobject, which starts with a base distance / time assuming the last object is a hitcircle.
-            double currVelocity = osuCurrObj.LazyJumpDistance / osuCurrObj.StrainTime;
-
-            // But if the last object is a slider, then we extend the travel velocity through the slider into the current object.
-            if (osuLastObj.BaseObject is Slider && withSliders)
-            {
-                double travelVelocity = osuLastObj.TravelDistance / osuLastObj.TravelTime; // calculate the slider velocity from slider head to slider end.
-                double movementVelocity = osuCurrObj.MinimumJumpDistance / osuCurrObj.MinimumJumpTime; // calculate the movement velocity from slider end to current object
-
-                currVelocity = Math.Max(currVelocity, movementVelocity + travelVelocity); // take the larger total combined velocity.
-            }
-
-            // As above, do the same for the previous hitobject.
-            double prevVelocity = osuLastObj.LazyJumpDistance / osuLastObj.StrainTime;
-
-            if (osuLastLastObj.BaseObject is Slider && withSliders)
-            {
-                double travelVelocity = osuLastLastObj.TravelDistance / osuLastLastObj.TravelTime;
-                double movementVelocity = osuLastObj.MinimumJumpDistance / osuLastObj.MinimumJumpTime;
-
-                prevVelocity = Math.Max(prevVelocity, movementVelocity + travelVelocity);
-            }
-
-            double wideAngleBonus = 0;
-            double acuteAngleBonus = 0;
-            double sliderBonus = 0;
-            double velocityChangeBonus = 0;
-
-            double aimStrain = currVelocity; // Start strain with regular velocity.
-
-            if (Math.Max(osuCurrObj.StrainTime, osuLastObj.StrainTime) < 1.25 * Math.Min(osuCurrObj.StrainTime, osuLastObj.StrainTime)) // If rhythms are the same.
-            {
-                if (osuCurrObj.Angle != null && osuLastObj.Angle != null && osuLastLastObj.Angle != null)
-                {
-                    double currAngle = osuCurrObj.Angle.Value;
-                    double lastAngle = osuLastObj.Angle.Value;
-                    double lastLastAngle = osuLastLastObj.Angle.Value;
-
-                    // Rewarding angles, take the smaller velocity as base.
-                    double angleBonus = Math.Min(currVelocity, prevVelocity);
-
-                    wideAngleBonus = calcWideAngleBonus(currAngle);
-                    acuteAngleBonus = calcAcuteAngleBonus(currAngle);
-
-                    if (osuCurrObj.StrainTime > 100) // Only buff deltaTime exceeding 300 bpm 1/2.
-                        acuteAngleBonus = 0;
-                    else
-                    {
-                        acuteAngleBonus *= calcAcuteAngleBonus(lastAngle) // Multiply by previous angle, we don't want to buff unless this is a wiggle type pattern.
-                                           * Math.Min(angleBonus, 125 / osuCurrObj.StrainTime) // The maximum velocity we buff is equal to 125 / strainTime
-                                           * Math.Pow(Math.Sin(Math.PI / 2 * Math.Min(1, (100 - osuCurrObj.StrainTime) / 25)), 2) // scale buff from 150 bpm 1/4 to 200 bpm 1/4
-                                           * Math.Pow(Math.Sin(Math.PI / 2 * (Math.Clamp(osuCurrObj.LazyJumpDistance, 50, 100) - 50) / 50),
-                                               2); // Buff distance exceeding 50 (radius) up to 100 (diameter).
-                    }
-
-                    // Penalize wide angles if they're repeated, reducing the penalty as the lastAngle gets more acute.
-                    wideAngleBonus *= angleBonus * (1 - Math.Min(wideAngleBonus, Math.Pow(calcWideAngleBonus(lastAngle), 3)));
-                    // Penalize acute angles if they're repeated, reducing the penalty as the lastLastAngle gets more obtuse.
-                    acuteAngleBonus *= 0.5 + 0.5 * (1 - Math.Min(acuteAngleBonus, Math.Pow(calcAcuteAngleBonus(lastLastAngle), 3)));
-                }
-            }
-
-            if (Math.Max(prevVelocity, currVelocity) != 0)
-            {
-                // We want to use the average velocity over the whole object when awarding differences, not the individual jump and slider path velocities.
-                prevVelocity = (osuLastObj.LazyJumpDistance + osuLastLastObj.TravelDistance) / osuLastObj.StrainTime;
-                currVelocity = (osuCurrObj.LazyJumpDistance + osuLastObj.TravelDistance) / osuCurrObj.StrainTime;
-
-                // Scale with ratio of difference compared to 0.5 * max dist.
-                double distRatio = Math.Pow(Math.Sin(Math.PI / 2 * Math.Abs(prevVelocity - currVelocity) / Math.Max(prevVelocity, currVelocity)), 2);
-
-                // Reward for % distance up to 125 / strainTime for overlaps where velocity is still changing.
-                double overlapVelocityBuff = Math.Min(125 / Math.Min(osuCurrObj.StrainTime, osuLastObj.StrainTime), Math.Abs(prevVelocity - currVelocity));
-
-                // Reward for % distance slowed down compared to previous, paying attention to not award overlap
-                double nonOverlapVelocityBuff = Math.Abs(prevVelocity - currVelocity)
-                                                // do not award overlap
-                                                * Math.Pow(Math.Sin(Math.PI / 2 * Math.Min(1, Math.Min(osuCurrObj.LazyJumpDistance, osuLastObj.LazyJumpDistance) / 100)), 2);
-
-                // Choose the largest bonus, multiplied by ratio.
-                velocityChangeBonus = Math.Max(overlapVelocityBuff, nonOverlapVelocityBuff) * distRatio;
-
-                // Penalize for rhythm changes.
-                velocityChangeBonus *= Math.Pow(Math.Min(osuCurrObj.StrainTime, osuLastObj.StrainTime) / Math.Max(osuCurrObj.StrainTime, osuLastObj.StrainTime), 2);
-            }
-
-            if (osuLastObj.TravelTime != 0)
-            {
-                // Reward sliders based on velocity.
-                sliderBonus = osuLastObj.TravelDistance / osuLastObj.TravelTime;
-            }
-
-            // Add in acute angle bonus or wide angle bonus + velocity change bonus, whichever is larger.
-            aimStrain += Math.Max(acuteAngleBonus * acute_angle_multiplier, wideAngleBonus * wide_angle_multiplier + velocityChangeBonus * velocity_change_multiplier);
-
-            // Add in additional slider velocity bonus.
-            if (withSliders)
-                aimStrain += sliderBonus * slider_multiplier;
-
-            return aimStrain;
-        }
-
-        /// <summary>
-        /// Represents the skill required to tap with one finger with regards to keeping up with the speed at which objects need to be hit.
-        /// </summary>
-        private double calcSpeed(DifficultyHitObject current, ReverseQueue<DifficultyHitObject> previous)
-        {
-            const double single_spacing_threshold = 125;
-
-            const double min_speed_bonus = 75; // ~200BPM
-            const double speed_balancing_factor = 40;
-
-            if (current.BaseObject is Spinner)
-                return 0;
-
-            // derive strainTime for calculation
-            var osuCurrObj = (OsuDifficultyHitObject)current;
-            var osuPrevObj = previous.Count > 0 ? (OsuDifficultyHitObject)previous[0] : null;
-
-            double strainTime = osuCurrObj.StrainTime / singletap_adjust;
-            double greatWindowFull = greatWindow * 2;
-
-            // Cap deltatime to the OD 300 hitwindow.
-            // 0.93 is derived from making sure 260bpm OD8 streams aren't nerfed harshly, whilst 0.92 limits the effect of the cap.
-            strainTime /= Math.Clamp((strainTime / greatWindowFull) / 0.93, 0.92, 1);
-
-            // derive speedBonus for calculation
-            double speedBonus = 1.0;
-
-            if (strainTime < min_speed_bonus)
-                speedBonus = 1 + 0.75 * Math.Pow((min_speed_bonus - strainTime) / speed_balancing_factor, 2);
-
-            double travelDistance = osuPrevObj?.TravelDistance ?? 0;
-            double distance = Math.Min(single_spacing_threshold, travelDistance + osuCurrObj.MinimumJumpDistance);
-
-            return (speedBonus + speedBonus * Math.Pow(distance / single_spacing_threshold, 3.5)) / strainTime;
-        }
-
-        private double calcWideAngleBonus(double angle) => Math.Pow(Math.Sin(3.0 / 4 * (Math.Min(5.0 / 6 * Math.PI, Math.Max(Math.PI / 6, angle)) - Math.PI / 6)), 2);
-
-        private double calcAcuteAngleBonus(double angle) => 1 - calcWideAngleBonus(angle);
     }
 }

@@ -120,7 +120,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             {
                 new Aim(mods, true),
                 new Aim(mods, false),
-                new Speed(mods, hitWindowGreat),
+                new Speed(mods, hitWindowGreat, false),
                 new Flashlight(mods),
                 new TouchStrainSkill(mods, clockRate, hitWindowGreat, true, true),
                 new TouchStrainSkill(mods, clockRate, hitWindowGreat, false, true),

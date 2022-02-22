@@ -3,6 +3,7 @@
 
 using System;
 using osu.Game.Rulesets.Difficulty.Preprocessing;
+using osu.Game.Rulesets.Difficulty.Utils;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Osu.Difficulty.Preprocessing;
 using osu.Game.Rulesets.Osu.Objects;
@@ -34,14 +35,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private double skillMultiplier => 23.25;
         private double strainDecayBase => 0.15;
 
-        private double strainValueOf(DifficultyHitObject current)
+        internal double StrainValueOf(DifficultyHitObject current, ReverseQueue<DifficultyHitObject> previous)
         {
-            if (current.BaseObject is Spinner || Previous.Count <= 1 || Previous[0].BaseObject is Spinner)
+            if (current.BaseObject is Spinner || previous.Count <= 1 || previous[0].BaseObject is Spinner)
                 return 0;
 
             var osuCurrObj = (OsuDifficultyHitObject)current;
-            var osuLastObj = (OsuDifficultyHitObject)Previous[0];
-            var osuLastLastObj = (OsuDifficultyHitObject)Previous[1];
+            var osuLastObj = (OsuDifficultyHitObject)previous[0];
+            var osuLastLastObj = (OsuDifficultyHitObject)previous[1];
 
             // Calculate the velocity to the current hitobject, which starts with a base distance / time assuming the last object is a hitcircle.
             double currVelocity = osuCurrObj.LazyJumpDistance / osuCurrObj.StrainTime;
@@ -157,7 +158,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         protected override double StrainValueAt(DifficultyHitObject current)
         {
             currentStrain *= strainDecay(current.DeltaTime);
-            currentStrain += strainValueOf(current) * skillMultiplier;
+            currentStrain += StrainValueOf(current, Previous) * skillMultiplier;
 
             return currentStrain;
         }
