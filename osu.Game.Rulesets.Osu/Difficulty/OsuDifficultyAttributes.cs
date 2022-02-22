@@ -25,10 +25,16 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         public double SpeedDifficulty { get; set; }
 
         /// <summary>
-        /// The difficulty corresponding to the touch skill.
+        /// The difficulty corresponding to the touchscreen aim skill.
         /// </summary>
-        [JsonProperty("speed_difficulty")]
-        public double TouchDifficulty { get; set; }
+        [JsonProperty("touch_aim_difficulty")]
+        public double TouchAimDifficulty { get; set; }
+
+        /// <summary>
+        /// The difficulty corresponding to the touchscreen speed skill.
+        /// </summary>
+        [JsonProperty("touch_speed_difficulty")]
+        public double TouchSpeedDifficulty { get; set; }
 
         /// <summary>
         /// The difficulty corresponding to the flashlight skill.
@@ -45,11 +51,11 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         public double SliderFactor { get; set; }
 
         /// <summary>
-        /// Describes how much of <see cref="TouchDifficulty"/> is contributed to by hitcircles or sliders.
-        /// A value closer to 1.0 indicates most of <see cref="TouchDifficulty"/> is contributed by hitcircles.
-        /// A value closer to 0.0 indicates most of <see cref="TouchDifficulty"/> is contributed by sliders.
+        /// Describes how much of <see cref="TouchAimDifficulty"/> is contributed to by hitcircles or sliders.
+        /// A value closer to 1.0 indicates most of <see cref="TouchAimDifficulty"/> is contributed by hitcircles.
+        /// A value closer to 0.0 indicates most of <see cref="TouchAimDifficulty"/> is contributed by sliders.
         /// </summary>
-        [JsonProperty("slider_factor")]
+        [JsonProperty("touch_slider_factor")]
         public double TouchSliderFactor { get; set; }
 
         /// <summary>

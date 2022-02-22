@@ -61,15 +61,12 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             double aimValue = computeAimValue();
             double speedValue = computeSpeedValue();
-            double touchValue = computeTouchValue();
             double accuracyValue = computeAccuracyValue();
             double flashlightValue = computeFlashlightValue();
             double totalValue =
                 Math.Pow(
-                    (mods.Any(m => m is OsuModTouchDevice)
-                        ? Math.Pow(touchValue, 1.1)
-                        : Math.Pow(aimValue, 1.1) +
-                          Math.Pow(speedValue, 1.1)) +
+                    Math.Pow(aimValue, 1.1) +
+                    Math.Pow(speedValue, 1.1) +
                     Math.Pow(accuracyValue, 1.1) +
                     Math.Pow(flashlightValue, 1.1), 1.0 / 1.1
                 ) * multiplier;
@@ -85,59 +82,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             };
         }
 
-        private double computeTouchValue()
-        {
-            double touchValue = Math.Pow(5.0 * Math.Max(1.0, Attributes.TouchDifficulty / 0.0675) - 4.0, 3.0) / 100000.0;
-
-            // Longer maps are worth more
-            double lengthBonus = 0.95 + 0.4 * Math.Min(1.0, totalHits / 2000.0) +
-                                 (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
-
-            touchValue *= lengthBonus;
-
-            // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
-            if (effectiveMissCount > 0)
-                touchValue *= 0.97 * Math.Pow(1 - Math.Pow(effectiveMissCount / totalHits, 0.775), effectiveMissCount);
-
-            touchValue *= getComboScalingFactor();
-
-            double approachRateFactor = 0.0;
-            if (Attributes.ApproachRate > 10.33)
-                approachRateFactor = Attributes.ApproachRate - 10.33;
-            else if (Attributes.ApproachRate < 8.0)
-                approachRateFactor = 0.025 * (8.0 - Attributes.ApproachRate);
-
-            touchValue *= 1.0 + 0.5 * approachRateFactor * lengthBonus; // Buff for longer maps with high AR.
-
-            if (mods.Any(m => m is OsuModBlinds))
-                touchValue *= 1.3 + (totalHits * (0.0016 / (1 + 2 * effectiveMissCount)) * Math.Pow(accuracy, 16)) * (1 - 0.003 * Attributes.DrainRate * Attributes.DrainRate);
-            else if (mods.Any(h => h is OsuModHidden))
-            {
-                // We want to give more reward for lower AR when it comes to aim and HD. This nerfs high AR and buffs lower AR.
-                touchValue *= 1.0 + 0.04 * (12.0 - Attributes.ApproachRate);
-            }
-
-            // We assume 15% of sliders in a map are difficult since there's no way to tell from the performance calculator.
-            double estimateDifficultSliders = Attributes.SliderCount * 0.15;
-
-            if (Attributes.SliderCount > 0)
-            {
-                double estimateSliderEndsDropped = Math.Clamp(Math.Min(countOk + countMeh + countMiss, Attributes.MaxCombo - scoreMaxCombo), 0, estimateDifficultSliders);
-                double sliderNerfFactor = (1 - Attributes.TouchSliderFactor) * Math.Pow(1 - estimateSliderEndsDropped / estimateDifficultSliders, 3) + Attributes.TouchSliderFactor;
-                touchValue *= sliderNerfFactor;
-            }
-
-            // Scale the speed value with accuracy and OD
-            touchValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
-            // Scale the speed value with # of 50s to punish doubletapping.
-            touchValue *= Math.Pow(0.98, countMeh < totalHits / 500.0 ? 0 : countMeh - totalHits / 500.0);
-
-            return touchValue;
-        }
-
         private double computeAimValue()
         {
-            double rawAim = Attributes.AimDifficulty;
+            double rawAim = mods.Any(m => m is OsuModTouchDevice) ? Attributes.TouchAimDifficulty : Attributes.AimDifficulty;
 
             double aimValue = Math.Pow(5.0 * Math.Max(1.0, rawAim / 0.0675) - 4.0, 3.0) / 100000.0;
 
@@ -186,7 +133,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
         private double computeSpeedValue()
         {
-            double speedValue = Math.Pow(5.0 * Math.Max(1.0, Attributes.SpeedDifficulty / 0.0675) - 4.0, 3.0) / 100000.0;
+            double rawSpeed = mods.Any(m => m is OsuModTouchDevice) ? Attributes.TouchSpeedDifficulty : Attributes.SpeedDifficulty;
+
+            double speedValue = Math.Pow(5.0 * Math.Max(1.0, rawSpeed / 0.0675) - 4.0, 3.0) / 100000.0;
 
             double lengthBonus = 0.95 + 0.4 * Math.Min(1.0, totalHits / 2000.0) +
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
@@ -258,6 +207,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (mods.Any(m => m is OsuModFlashlight))
                 accuracyValue *= 1.02;
 
+            if (mods.Any(m => m is OsuModTouchDevice))
+                accuracyValue *= 1.2;
+
             return accuracyValue;
         }
 
@@ -269,7 +221,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double rawFlashlight = Attributes.FlashlightDifficulty;
 
             if (mods.Any(m => m is OsuModTouchDevice))
-                rawFlashlight *= Attributes.TouchDifficulty / Math.Pow(Math.Pow(Attributes.AimDifficulty, 3.0 / 2.0) + Math.Pow(Attributes.SpeedDifficulty, 3.0 / 2.0), 2.0 / 3.0);
+                rawFlashlight *= Attributes.TouchAimDifficulty / Attributes.AimDifficulty;
 
             double flashlightValue = Math.Pow(rawFlashlight, 2.0) * 25.0;
 

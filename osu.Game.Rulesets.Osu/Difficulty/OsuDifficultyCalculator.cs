@@ -37,11 +37,12 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double aimRatingNoSliders = Math.Sqrt(skills[1].DifficultyValue()) * difficulty_multiplier;
             double speedRating = Math.Sqrt(skills[2].DifficultyValue()) * difficulty_multiplier;
             double flashlightRating = Math.Sqrt(skills[3].DifficultyValue()) * difficulty_multiplier;
-            double touchRating = Math.Sqrt(skills[4].DifficultyValue()) * difficulty_multiplier;
-            double touchRatingNoSliders = Math.Sqrt(skills[5].DifficultyValue()) * difficulty_multiplier;
+            double touchAimRating = Math.Sqrt(skills[4].DifficultyValue()) * difficulty_multiplier;
+            double touchAimRatingNoSliders = Math.Sqrt(skills[5].DifficultyValue()) * difficulty_multiplier;
+            double touchSpeedRating = Math.Sqrt(skills[6].DifficultyValue()) * difficulty_multiplier;
 
             double sliderFactor = aimRating > 0 ? aimRatingNoSliders / aimRating : 1;
-            double touchSliderFactor = touchRating > 0 ? touchRatingNoSliders / touchRating : 1;
+            double touchSliderFactor = touchAimRating > 0 ? touchAimRatingNoSliders / touchAimRating : 1;
 
             if (mods.Any(h => h is OsuModRelax))
                 speedRating = 0.0;
@@ -79,7 +80,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 Mods = mods,
                 AimDifficulty = aimRating,
                 SpeedDifficulty = speedRating,
-                TouchDifficulty = touchRating,
+                TouchAimDifficulty = touchAimRating,
+                TouchSpeedDifficulty = touchSpeedRating,
                 FlashlightDifficulty = flashlightRating,
                 SliderFactor = sliderFactor,
                 TouchSliderFactor = touchSliderFactor,
@@ -120,8 +122,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 new Aim(mods, false),
                 new Speed(mods, hitWindowGreat),
                 new Flashlight(mods),
-                new TouchStrainSkill(mods, clockRate, hitWindowGreat, true),
-                new TouchStrainSkill(mods, clockRate, hitWindowGreat, false),
+                new TouchStrainSkill(mods, clockRate, hitWindowGreat, true, true),
+                new TouchStrainSkill(mods, clockRate, hitWindowGreat, false, true),
+                new TouchStrainSkill(mods, clockRate, hitWindowGreat, false, false),
             };
         }
 
