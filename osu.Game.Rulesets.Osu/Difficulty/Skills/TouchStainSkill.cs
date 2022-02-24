@@ -23,7 +23,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const int l = 0;
         private const int r = 1;
 
-        private const double overall_multiplier = 0.92; // Multiplier for final value
+        private const double overall_multiplier = 0.87; // Multiplier for final value
 
         // Constants for hand-coordination bonuses
         private const double coordination_aim_max_bonus = 0.82;
