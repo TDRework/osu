@@ -51,6 +51,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private readonly double[] likelihood = new double[1 << sequence_length]; // Should add up to 1.0
         private readonly long[] fullSequence = new long[1 << sequence_length]; // Contains full sequence up to 63 notes to maintain approximate precision
         private readonly Aim aimSkill;
+        private readonly Aim aimSkillNoSliders; // Obstruction bonuses should not stack with sliders
         private readonly Speed speedSkill;
 
         // Constant table for fast base-2 logarithm calculation
@@ -70,6 +71,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             : base(mods)
         {
             aimSkill = new Aim(mods, withSliders);
+            aimSkillNoSliders = new Aim(mods, false);
             speedSkill = new Speed(mods, hitWindowGreat, true);
             this.clockRate = clockRate;
             this.calculatingAim = calculatingAim;
@@ -181,24 +183,25 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             simulatedPrevious.Enqueue(new OsuDifficultyHitObject(lastSame[j], lastSame[j + 2], lastSame[j + 1], clockRate));
 
                         // Adding a hand-coordination bonus based on time since the last hand "swap"
-                        double aimBonus = 1;
+                        double aimBonus = 0;
                         double speedBonus = 1;
-                        double angleBonus = 1;
 
                         if (lastSwap != null)
                         {
-                            // Increases aim coordination bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
                             var simulatedSwap = new OsuDifficultyHitObject(current.BaseObject, lastSame[0], lastSwap, clockRate);
+                            // Add an obstrution bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
+                            double obstructionBonus = 1;
                             double? angle = simulatedSwap.Angle;
                             if (angle != null)
-                                angleBonus += 1 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
+                                obstructionBonus += 3 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
 
                             double ratio = simulatedCurrent.DeltaTime / (simulatedCurrent.DeltaTime + simulatedSwap.DeltaTime);
-                            aimBonus += coordination_aim_max_bonus * coordinationFactor(ratio, coordination_aim_decay);
+                            aimBonus = coordination_aim_max_bonus * obstructionBonus * coordinationFactor(ratio, coordination_aim_decay);
                             speedBonus += coordination_speed_max_bonus * coordinationFactor(ratio, coordination_speed_decay);
                         }
 
-                        rawAim[hand] = aimSkill.SkillMultiplier * Math.Pow(aimBonus * aimSkill.StrainValueOf(simulatedCurrent, simulatedPrevious), angleBonus);
+                        rawAim[hand] = aimSkill.SkillMultiplier
+                                       * (aimBonus * aimSkillNoSliders.StrainValueOf(simulatedCurrent, simulatedPrevious) + aimSkill.StrainValueOf(simulatedCurrent, simulatedPrevious));
                         rawSpeed[hand] = speedSkill.SkillMultiplier * speedBonus * speedSkill.StrainValueOf(simulatedCurrent, simulatedPrevious);
                         rawRhythm[hand] = speedSkill.CalculateRhythmBonus(simulatedCurrent, simulatedPrevious);
                     }
@@ -236,6 +239,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             int newSequenceLength = Math.Min(sequence_length, currentSequenceLength + 1);
 
             // Dividing by the likelihood to return the weighted average of all past sequences that contributed to the current one
+
             for (int i = 0; i < 1 << newSequenceLength; i++)
             {
                 if (newlikelihood[i] > double.Epsilon)
