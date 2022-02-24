@@ -191,7 +191,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             var simulatedSwap = new OsuDifficultyHitObject(current.BaseObject, lastSame[0], lastSwap, clockRate);
                             double? angle = simulatedSwap.Angle;
                             if (angle != null)
-                                angleBonus += 3 / (2 * (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9)));
+                                angleBonus += 1 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
 
                             double ratio = simulatedCurrent.DeltaTime / (simulatedCurrent.DeltaTime + simulatedSwap.DeltaTime);
                             aimBonus += coordination_aim_max_bonus * coordinationFactor(ratio, coordination_aim_decay);
