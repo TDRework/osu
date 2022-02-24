@@ -144,8 +144,6 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             var osuPrevObj = previous.Count > 0 ? (OsuDifficultyHitObject)previous[0] : null;
 
             double strainTime = osuCurrObj.StrainTime;
-            if (singletapped)
-                strainTime /= singletap_adjust;
 
             double greatWindowFull = greatWindow * 2;
             double speedWindowRatio = strainTime / greatWindowFull;
@@ -160,6 +158,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
             // derive speedBonus for calculation
             double speedBonus = 1.0;
+
+            if (singletapped)
+                strainTime /= singletap_adjust;
 
             if (strainTime < min_speed_bonus)
                 speedBonus = 1 + 0.75 * Math.Pow((min_speed_bonus - strainTime) / speed_balancing_factor, 2);

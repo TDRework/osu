@@ -16,17 +16,20 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
     public class TouchStrainSkill : OsuStrainSkill
     {
         protected override int HistoryLength => 60;
+        private const int history_required = 32;
         private const int sequence_length = 4;
 
         // The actions utilized are bitmasked into an integer
         private const int l = 0;
         private const int r = 1;
 
-        private const double overall_multiplier = 0.97; // Multiplier for final value
+        private const double overall_multiplier = 0.92; // Multiplier for final value
 
         // Constants for hand-coordination bonuses
-        private const double coordination_aim_max_bonus = 0.62;
+        private const double coordination_aim_max_bonus = 0.82;
         private const double coordination_speed_max_bonus = 0.18; // Exact constant such that fully alternating between two hands rewards as much as streams
+        private const double coordination_aim_decay = 3;
+        private const double coordination_speed_decay = 5.5;
 
         // We keep an array of actions for convenience in code
         private readonly int[] actions =
@@ -97,12 +100,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         {
             weightedAimStrain = 0;
             weightedSpeedStrain = 0;
-            weightedRhythm = 0;
+            // Include a slight consideration of rhythmic complexity not independent of each hand
+            weightedRhythm = (speedSkill.CalculateRhythmBonus(current, Previous) - 1) / 4;
 
             double[] newAimStrain = new double[1 << sequence_length];
             double[] newSpeedStrain = new double[1 << sequence_length];
             double[] newlikelihood = new double[1 << sequence_length];
             long[] newFullSequence = new long[1 << sequence_length];
+
             int currentSequenceLength = Math.Min(sequence_length, Previous.Count + 1);
             int currentHistoryLength = Math.Min(HistoryLength, Previous.Count + 1);
 
@@ -138,24 +143,26 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                         bitFixedExtension ^= invert;
 
                     // Identifying relevant HitObject indexes from the bitmask sequence
-                    HitObject[] lastSame = new HitObject[HistoryLength];
+                    HitObject[] lastSame = new HitObject[history_required];
                     HitObject lastSwap = null;
 
+                    // Rightmost bit that is NOT equal to "hand" corresponds to the index of the last swap
                     int lastSwapIndex = rightmostBitLocation(bitFixedExtension ^ invert);
                     if (lastSwapIndex < currentHistoryLength)
                         lastSwap = trueHistory[lastSwapIndex];
 
                     int mostRecentSame = 0;
 
-                    while (mostRecentSame < HistoryLength)
+                    while (mostRecentSame < history_required)
                     {
-                        long leastSignificantBit = (bitFixedExtension & (-bitFixedExtension));
+                        long leastSignificantBit = bitFixedExtension & -bitFixedExtension;
                         int lastSameIndex = rightmostBitLocation(bitFixedExtension);
-
+                        // Only occurs if the current sequence of notes does not contain the current hand
                         if (lastSameIndex >= currentHistoryLength) break;
 
                         lastSame[mostRecentSame] = trueHistory[lastSameIndex];
                         mostRecentSame++;
+                        // Subtracting LSB simulates lets rightmostBitLocation() identify the 2nd most recent note hit with the same hand, then the 3rd, etc...
                         bitFixedExtension -= leastSignificantBit;
                     }
 
@@ -163,19 +170,15 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                     {
                         // Calculating the individual strains
                         DifficultyHitObject simulatedCurrent = new OsuDifficultyHitObject(current.BaseObject, lastSame[1], lastSame[0], clockRate);
-                        ReverseQueue<DifficultyHitObject> simulatedPrevious = new ReverseQueue<DifficultyHitObject>(HistoryLength);
+                        ReverseQueue<DifficultyHitObject> simulatedPrevious = new ReverseQueue<DifficultyHitObject>(history_required);
 
                         const int min_required = 3; // Minimum DifficultyHitObjects required for aim/speed calculation, the rest will be "lazily" generated, only consisting of deltaTimes
 
                         for (int j = mostRecentSame - 2; j > min_required; j--)
-                        {
                             simulatedPrevious.Enqueue(new OsuDifficultyHitObject(lastSame[j], j + 2 == mostRecentSame ? null : lastSame[j + 2], lastSame[j + 1], clockRate, false));
-                        }
 
                         for (int j = Math.Min(min_required, mostRecentSame - 2); j >= 0; j--)
-                        {
                             simulatedPrevious.Enqueue(new OsuDifficultyHitObject(lastSame[j], lastSame[j + 2], lastSame[j + 1], clockRate));
-                        }
 
                         // Adding a hand-coordination bonus based on time since the last hand "swap"
                         double aimBonus = 1;
@@ -188,12 +191,11 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             var simulatedSwap = new OsuDifficultyHitObject(current.BaseObject, lastSame[0], lastSwap, clockRate);
                             double? angle = simulatedSwap.Angle;
                             if (angle != null)
-                                angleBonus += 1 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
+                                angleBonus += 3 / (2 * (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9)));
 
-                            double coordinationFactor = simulatedCurrent.DeltaTime / (simulatedCurrent.DeltaTime + simulatedSwap.DeltaTime);
-                            coordinationFactor = Math.Min(1, 3.5 * Math.Pow(coordinationFactor, 3));
-                            aimBonus += coordination_aim_max_bonus * coordinationFactor;
-                            speedBonus += coordination_speed_max_bonus * coordinationFactor;
+                            double ratio = simulatedCurrent.DeltaTime / (simulatedCurrent.DeltaTime + simulatedSwap.DeltaTime);
+                            aimBonus += coordination_aim_max_bonus * coordinationFactor(ratio, coordination_aim_decay);
+                            speedBonus += coordination_speed_max_bonus * coordinationFactor(ratio, coordination_speed_decay);
                         }
 
                         rawAim[hand] = aimSkill.SkillMultiplier * Math.Pow(aimBonus * aimSkill.StrainValueOf(simulatedCurrent, simulatedPrevious), angleBonus);
@@ -255,6 +257,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
             return overall_multiplier * weightedRhythm * weightedSpeedStrain;
         }
+
+        private double coordinationFactor(double swapRatio, double decay) => Math.Min(1, Math.Pow(3.0 / 2.0, decay) * Math.Pow(swapRatio, decay));
 
         private double curveProbability(double chance) => chance <= 0.5 ? Math.Pow(2 * chance, 4) / 2 : 1 - Math.Pow(2 * (1 - chance), 4) / 2;
 
