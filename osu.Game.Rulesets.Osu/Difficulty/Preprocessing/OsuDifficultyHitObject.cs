@@ -15,6 +15,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
         private const int min_delta_time = 25;
         private const float maximum_slider_radius = normalised_radius * 2.4f;
         private const float assumed_slider_radius = normalised_radius * 1.8f;
+        private readonly double clockRate;
 
         protected new OsuHitObject BaseObject => (OsuHitObject)base.BaseObject;
 
@@ -65,6 +66,16 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
         public double TravelTime { get; private set; }
 
         /// <summary>
+        /// Normalized travel distance between the current object and <see cref="lastLastObject"/> with consideration of <see cref="lastObject"/> being a solid object obstructing the path.
+        /// </summary>
+        public double ObstructionFactor { get; private set; }
+
+        /// <summary>
+        /// Percentage of displacement contributed by the horizontal component.
+        /// </summary>
+        public double HorizontalDisplacementFactor { get; private set; }
+
+        /// <summary>
         /// Angle the player has to take to hit this <see cref="OsuDifficultyHitObject"/>.
         /// Calculated as the angle between the circles (current-2, current-1, current).
         /// </summary>
@@ -78,15 +89,19 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
         {
             this.lastLastObject = (OsuHitObject)lastLastObject;
             this.lastObject = (OsuHitObject)lastObject;
+            this.clockRate = clockRate;
 
             // Capped to 25ms to prevent difficulty calculation breaking from simultaneous objects.
             StrainTime = Math.Max(DeltaTime, min_delta_time);
 
+            // Do not calculate distances unless it is necessary for the object.
             if (calcDistances)
                 setDistances(clockRate);
         }
 
-        private void setDistances(double clockRate)
+        internal void UpdateDistances(float customScale) => setDistances(clockRate, customScale);
+
+        private void setDistances(double clockRate, float customScale = 1)
         {
             if (BaseObject is Slider currentSlider)
             {
@@ -100,7 +115,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
                 return;
 
             // We will scale distances by this factor, so we can assume a uniform CircleSize among beatmaps.
-            float scalingFactor = normalised_radius / (float)BaseObject.Radius;
+            float scalingFactor = normalised_radius / (float)BaseObject.Radius * customScale;
 
             if (BaseObject.Radius < 30)
             {
@@ -113,6 +128,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
             LazyJumpDistance = (BaseObject.StackedPosition * scalingFactor - lastCursorPosition * scalingFactor).Length;
             MinimumJumpTime = StrainTime;
             MinimumJumpDistance = LazyJumpDistance;
+            HorizontalDisplacementFactor = (BaseObject.StackedPosition * scalingFactor - lastCursorPosition * scalingFactor).X;
+            if (LazyJumpDistance >= double.Epsilon)
+                HorizontalDisplacementFactor /= LazyJumpDistance;
 
             if (lastObject is Slider lastSlider)
             {
@@ -145,17 +163,29 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
                 MinimumJumpDistance = Math.Max(0, Math.Min(LazyJumpDistance - (maximum_slider_radius - assumed_slider_radius), tailJumpDistance - maximum_slider_radius));
             }
 
+            ObstructionFactor = 0;
+
             if (lastLastObject != null && !(lastLastObject is Spinner))
             {
                 Vector2 lastLastCursorPosition = getEndCursorPosition(lastLastObject);
 
                 Vector2 v1 = lastLastCursorPosition - lastObject.StackedPosition;
                 Vector2 v2 = BaseObject.StackedPosition - lastCursorPosition;
+                Vector2 v3 = BaseObject.StackedPosition - lastLastCursorPosition;
 
                 float dot = Vector2.Dot(v1, v2);
                 float det = v1.X * v2.Y - v1.Y * v2.X;
 
                 Angle = Math.Abs(Math.Atan2(det, dot));
+
+                if (v3.Length > float.Epsilon)
+                {
+                    float projection1 = Vector2.Dot(v1, v3) / v3.Length;
+                    float projection2 = Vector2.Dot(v2, v3) / v3.Length;
+                    double distance = Math.Sqrt(Math.Max(0, v1.LengthSquared - projection1 * projection1));
+
+                    ObstructionFactor = 2 * Math.Max(0, Math.Min(projection1, projection2) - distance) / v3.Length;
+                }
             }
         }
 
