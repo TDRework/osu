@@ -31,7 +31,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const double coordination_aim_decay = 5.6;
         private const double coordination_obstruction_decay = 1.8;
         private const double coordination_speed_decay = 9.5;
-        private const float tap_x_obstruction_cap = 1.5f;
+        private const float tap_x_aim_cap = 2.0f;
 
         // We keep an array of actions for convenience in code
         private readonly int[] actions =
@@ -198,41 +198,42 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             horizontalOverlap = 1.0 / (1.0 + Math.Pow(Math.E, 2.5 - 6.0 * horizontalOverlap));
 
                             double rawObstruction = 2.0 * simulatedSwap.ObstructionFactor;
-                            obstructionBonus += (horizontalOverlap + rawObstruction) * coordinationFactor(ratio, coordination_obstruction_decay);
+                            obstructionBonus = (horizontalOverlap + rawObstruction);
 
                             aimBonus += coordination_aim_max_bonus * coordinationFactor(ratio, coordination_aim_decay);
+                            aimBonus += obstructionBonus * coordinationFactor(ratio, coordination_obstruction_decay);
                             speedBonus += coordination_speed_max_bonus * coordinationFactor(ratio, coordination_speed_decay);
                         }
 
-                        // Do not apply obstruction bonuses to slider travel time.
+                        // Do not apply bonuses to slider travel time.
                         double rawAimSkill = aimSkill.StrainValueOf(simulatedCurrent, simulatedPrevious);
                         double rawMovement = aimSkillNoSliders.StrainValueOf(simulatedCurrent, simulatedPrevious);
-                        simulatedCurrent.UpdateDistances((float)obstructionBonus);
+                        simulatedCurrent.ApplyBonuses((float)aimBonus, (float)speedBonus);
 
                         for (int j = Math.Min(min_required, mostRecentSame - 2); j >= 0; j--)
                         {
                             var previous = (OsuDifficultyHitObject)simulatedPrevious[j];
-                            previous.UpdateDistances((float)obstructionBonus);
+                            previous.ApplyBonuses((float)aimBonus, (float)speedBonus);
                         }
 
                         rawMovement = aimSkillNoSliders.StrainValueOf(simulatedCurrent, simulatedPrevious) - rawMovement;
 
                         // Set a hard limit on obstruction bonuses to take tapX into consideration.
-                        if (obstructionBonus >= tap_x_obstruction_cap)
+                        if (obstructionBonus >= tap_x_aim_cap)
                         {
-                            simulatedCurrent.UpdateDistances(tap_x_obstruction_cap);
+                            simulatedCurrent.ApplyBonuses(tap_x_aim_cap, (float)speedBonus);
 
                             for (int j = Math.Min(min_required, mostRecentSame - 2); j >= 0; j--)
                             {
                                 var previous = (OsuDifficultyHitObject)simulatedPrevious[j];
-                                previous.UpdateDistances(tap_x_obstruction_cap);
+                                previous.ApplyBonuses(tap_x_aim_cap, (float)speedBonus);
                             }
                         }
 
                         double rawSpeedSkill = speedSkill.StrainValueOf(simulatedCurrent, simulatedPrevious);
 
-                        rawAim[hand] = aimSkill.SkillMultiplier * aimBonus * (rawMovement + rawAimSkill);
-                        rawSpeed[hand] = speedSkill.SkillMultiplier * speedBonus * rawSpeedSkill;
+                        rawAim[hand] = aimSkill.SkillMultiplier * (rawMovement + rawAimSkill);
+                        rawSpeed[hand] = speedSkill.SkillMultiplier * rawSpeedSkill;
                         rawRhythm[hand] = speedSkill.CalculateRhythmBonus(simulatedCurrent, simulatedPrevious);
                     }
                 }

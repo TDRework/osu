@@ -22,7 +22,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
         /// <summary>
         /// Milliseconds elapsed since the start time of the previous <see cref="OsuDifficultyHitObject"/>, with a minimum of 25ms.
         /// </summary>
-        public readonly double StrainTime;
+        public double StrainTime;
 
         /// <summary>
         /// Normalised distance from the "lazy" end position of the previous <see cref="OsuDifficultyHitObject"/> to the start position of this <see cref="OsuDifficultyHitObject"/>.
@@ -99,7 +99,12 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
                 setDistances(clockRate);
         }
 
-        internal void UpdateDistances(float customScale) => setDistances(clockRate, customScale);
+        internal void ApplyBonuses(float customScale, float customClock)
+        {
+            double newClockRate = clockRate * customClock;
+            StrainTime = Math.Max(DeltaTime / customClock, min_delta_time);
+            setDistances(newClockRate, customScale);
+        }
 
         private void setDistances(double clockRate, float customScale = 1)
         {

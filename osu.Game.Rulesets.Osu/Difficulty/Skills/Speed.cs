@@ -21,7 +21,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private const int history_time_max = 5000; // 5 seconds of calculatingRhythmBonus max.
         private const double min_speed_bonus = 75; // ~200BPM
         private const double speed_balancing_factor = 40;
-        private const double singletap_adjust = 0.85; // Difficulty multiplier between singletapping and streaming
+        private const double singletap_adjust = 1.7; // Difficulty multiplier between singletapping and streaming
 
         internal double SkillMultiplier => 1375;
         internal double StrainDecayBase => 0.3;
@@ -158,10 +158,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
             // derive speedBonus for calculation
             double speedBonus = 1.0;
-            double singletapMultiplier = singletapped ? singletap_adjust : 1.0;
 
             if (singletapped)
-                strainTime /= 2;
+                strainTime /= singletap_adjust;
 
             if (strainTime < min_speed_bonus)
                 speedBonus = 1 + 0.75 * Math.Pow((min_speed_bonus - strainTime) / speed_balancing_factor, 2);
@@ -169,7 +168,13 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             double travelDistance = osuPrevObj?.TravelDistance ?? 0;
             double distance = Math.Min(single_spacing_threshold, travelDistance + osuCurrObj.MinimumJumpDistance);
 
-            return singletapMultiplier * (speedBonus + speedBonus * Math.Pow(distance / single_spacing_threshold, 3.5)) / strainTime;
+            double flowAim = speedBonus * Math.Pow(distance / single_spacing_threshold, 3.5) / strainTime;
+
+            if (singletapped)
+                flowAim /= singletap_adjust; // To balance the division of strainTime by singletap_adjust
+
+            double speed = speedBonus / strainTime;
+            return speed + flowAim;
         }
 
         private double strainDecay(double ms) => Math.Pow(StrainDecayBase, ms / 1000);
