@@ -18,20 +18,21 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         protected override int HistoryLength => 60;
         private const int history_required = 32;
         private const int sequence_length = 4;
+        private const int min_history_required = 3; // Minimum DifficultyHitObjects required for aim/speed calculation, the rest will be "lazily" generated, only consisting of deltaTimes
 
         // The actions utilized are bitmasked into an integer
         private const int l = 0;
         private const int r = 1;
 
-        private const double overall_multiplier = 0.85; // Multiplier for final value
+        private const double overall_multiplier = 0.89; // Multiplier for final value
 
         // Constants for hand-coordination bonuses
-        private const double coordination_aim_max_bonus = 0.65;
-        private const double coordination_speed_max_bonus = 0.18; // Exact constant such that fully alternating between two hands rewards as much as streams
-        private const double coordination_aim_decay = 5.6;
-        private const double coordination_obstruction_decay = 1.8;
-        private const double coordination_speed_decay = 9.5;
-        private const float tap_x_aim_cap = 2.0f;
+        private const double coordination_aim_max_bonus = 0.50;
+        private const double coordination_speed_max_bonus = 0.25; // Exact constant such that fully alternating between two hands rewards as much as streams
+        private const double coordination_aim_decay = 5.0;
+        private const double coordination_obstruction_decay = 0.8;
+        private const double coordination_speed_decay = 6.5;
+        private const float tap_x_aim_cap = 3.0f;
 
         // We keep an array of actions for convenience in code
         private readonly int[] actions =
@@ -55,6 +56,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         private readonly Aim aimSkill;
         private readonly Aim aimSkillNoSliders; // Obstruction bonuses should not stack with sliders
         private readonly Speed speedSkill;
+        private readonly Speed tapXSkill;
 
         // Constant table for fast base-2 logarithm calculation
         private readonly int[] logTable =
@@ -75,6 +77,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             aimSkill = new Aim(mods, withSliders);
             aimSkillNoSliders = new Aim(mods, false);
             speedSkill = new Speed(mods, hitWindowGreat, true);
+            tapXSkill = new Speed(mods, hitWindowGreat, false);
             this.clockRate = clockRate;
             this.calculatingAim = calculatingAim;
 
@@ -122,6 +125,32 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             {
                 var previous = Previous[j - 1].LastObject;
                 trueHistory[j] = previous;
+            }
+
+            // Set a hard limit on combined strains to take tapX into consideration.
+
+            double aimNoBonuses = aimSkill.StrainValueOf(current, Previous);
+            double aimNoSlidersNoBonuses = aimSkillNoSliders.StrainValueOf(current, Previous);
+
+            var currObj = (OsuDifficultyHitObject)current;
+            currObj.ApplyBonuses(tap_x_aim_cap, 1.0f);
+
+            for (int j = Math.Min(min_history_required, Previous.Count - 1); j >= 0; j--)
+            {
+                var previous = (OsuDifficultyHitObject)Previous[j];
+                previous.ApplyBonuses(tap_x_aim_cap, 1.0f);
+            }
+
+            double hardLimitAim = aimSkill.SkillMultiplier * aimSkillNoSliders.StrainValueOf(current, Previous) + aimNoBonuses - aimNoSlidersNoBonuses;
+            double hardLimitSpeed = speedSkill.SkillMultiplier * tapXSkill.StrainValueOf(current, Previous);
+            double hardLimitStrain = curveStrain(hardLimitAim, hardLimitSpeed);
+            // Resetting bonuses to default state
+            currObj.ApplyBonuses(1.0f, 1.0f);
+
+            for (int j = Math.Min(min_history_required, Previous.Count - 1); j >= 0; j--)
+            {
+                var previous = (OsuDifficultyHitObject)Previous[j];
+                previous.ApplyBonuses(1.0f, 1.0f);
             }
 
             // Performing a weighted sum of all sequences, simulating hitting the current note with either the left or right hand
@@ -174,18 +203,16 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                         // Calculating the individual strains
                         var simulatedCurrent = new OsuDifficultyHitObject(current.BaseObject, lastSame[1], lastSame[0], clockRate);
                         var simulatedPrevious = new ReverseQueue<DifficultyHitObject>(history_required);
-                        const int min_required = 3; // Minimum DifficultyHitObjects required for aim/speed calculation, the rest will be "lazily" generated, only consisting of deltaTimes
 
-                        for (int j = mostRecentSame - 2; j > min_required; j--)
+                        for (int j = mostRecentSame - 2; j > min_history_required; j--)
                             simulatedPrevious.Enqueue(new OsuDifficultyHitObject(lastSame[j], j + 2 == mostRecentSame ? null : lastSame[j + 2], lastSame[j + 1], clockRate, false));
 
-                        for (int j = Math.Min(min_required, mostRecentSame - 2); j >= 0; j--)
+                        for (int j = Math.Min(min_history_required, mostRecentSame - 2); j >= 0; j--)
                             simulatedPrevious.Enqueue(new OsuDifficultyHitObject(lastSame[j], j + 2 == mostRecentSame ? null : lastSame[j + 2], lastSame[j + 1], clockRate));
 
                         // Adding a hand-coordination bonus based on time since the last hand "swap"
                         double aimBonus = 1.0;
                         double speedBonus = 1.0;
-                        double obstructionBonus = 1.0;
 
                         if (lastSwap != null)
                         {
@@ -195,10 +222,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             // Add to obstruction bonus if hands cross over each other horizontally, assuming the right hand is most comfortable being to the right of the left hand
                             double handAdjust = hand == l ? 1 : -1;
                             double horizontalOverlap = simulatedSwap.HorizontalDisplacementFactor * handAdjust;
-                            horizontalOverlap = 1.0 / (1.0 + Math.Pow(Math.E, 2.5 - 6.0 * horizontalOverlap));
+                            horizontalOverlap = 1.0 / (1.0 + Math.Pow(Math.E, 2.0 - 6.0 * horizontalOverlap));
 
-                            double rawObstruction = 2.0 * simulatedSwap.ObstructionFactor;
-                            obstructionBonus = (horizontalOverlap + rawObstruction);
+                            double rawObstruction = 5.0 * simulatedSwap.ObstructionFactor;
+                            double obstructionBonus = ((1 + horizontalOverlap) * (1 + rawObstruction)) - 1;
 
                             aimBonus += coordination_aim_max_bonus * coordinationFactor(ratio, coordination_aim_decay);
                             aimBonus += obstructionBonus * coordinationFactor(ratio, coordination_obstruction_decay);
@@ -210,30 +237,35 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                         double rawMovement = aimSkillNoSliders.StrainValueOf(simulatedCurrent, simulatedPrevious);
                         simulatedCurrent.ApplyBonuses((float)aimBonus, (float)speedBonus);
 
-                        for (int j = Math.Min(min_required, mostRecentSame - 2); j >= 0; j--)
+                        for (int j = Math.Min(min_history_required, mostRecentSame - 2); j >= 0; j--)
                         {
                             var previous = (OsuDifficultyHitObject)simulatedPrevious[j];
                             previous.ApplyBonuses((float)aimBonus, (float)speedBonus);
                         }
 
-                        rawMovement = aimSkillNoSliders.StrainValueOf(simulatedCurrent, simulatedPrevious) - rawMovement;
-
-                        // Set a hard limit on obstruction bonuses to take tapX into consideration.
-                        if (obstructionBonus >= tap_x_aim_cap)
-                        {
-                            simulatedCurrent.ApplyBonuses(tap_x_aim_cap, (float)speedBonus);
-
-                            for (int j = Math.Min(min_required, mostRecentSame - 2); j >= 0; j--)
-                            {
-                                var previous = (OsuDifficultyHitObject)simulatedPrevious[j];
-                                previous.ApplyBonuses(tap_x_aim_cap, (float)speedBonus);
-                            }
-                        }
-
+                        rawAimSkill += aimSkillNoSliders.StrainValueOf(simulatedCurrent, simulatedPrevious) - rawMovement;
                         double rawSpeedSkill = speedSkill.StrainValueOf(simulatedCurrent, simulatedPrevious);
 
-                        rawAim[hand] = aimSkill.SkillMultiplier * (rawMovement + rawAimSkill);
+                        rawAim[hand] = aimSkill.SkillMultiplier * rawAimSkill;
                         rawSpeed[hand] = speedSkill.SkillMultiplier * rawSpeedSkill;
+
+                        // Applying hard cap based on combined strains in a similar fashion to the probability weightings
+                        double overallStrain = curveStrain(rawAim[hand], rawSpeed[hand]);
+                        double strainRatio = overallStrain / (overallStrain + hardLimitStrain);
+                        double probabilityTapX = strainRatio < 0.5 ? Math.Pow(2.0 * strainRatio, 8.0) : 1.0;
+
+                        rawAim[hand] = probabilityTapX * hardLimitAim + (1.0 - probabilityTapX) * rawAim[hand];
+                        rawSpeed[hand] = probabilityTapX * hardLimitSpeed + (1.0 - probabilityTapX) * rawSpeed[hand];
+
+                        // Reset bonuses for rhythmic complexity calculation.
+                        simulatedCurrent.ApplyBonuses(1, 1);
+
+                        for (int j = Math.Min(min_history_required, mostRecentSame - 2); j >= 0; j--)
+                        {
+                            var previous = (OsuDifficultyHitObject)simulatedPrevious[j];
+                            previous.ApplyBonuses(1, 1);
+                        }
+
                         rawRhythm[hand] = speedSkill.CalculateRhythmBonus(simulatedCurrent, simulatedPrevious);
                     }
                 }

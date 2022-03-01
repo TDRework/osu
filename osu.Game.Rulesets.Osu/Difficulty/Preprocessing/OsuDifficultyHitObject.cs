@@ -189,7 +189,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
                     float projection2 = Vector2.Dot(v2, v3) / v3.Length;
                     double distance = Math.Sqrt(Math.Max(0, v1.LengthSquared - projection1 * projection1));
 
-                    ObstructionFactor = 2 * Math.Max(0, Math.Min(projection1, projection2) - distance) / v3.Length;
+                    ObstructionFactor = 2 * Math.Max(0, Math.Min(projection1, projection2) - 0.875 * distance) / v3.Length;
                 }
             }
         }
