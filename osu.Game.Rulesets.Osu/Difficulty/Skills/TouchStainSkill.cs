@@ -224,8 +224,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                             double horizontalOverlap = simulatedSwap.HorizontalDisplacementFactor * handAdjust;
                             horizontalOverlap = 1.0 / (1.0 + Math.Pow(Math.E, 2.0 - 6.0 * horizontalOverlap));
 
-                            double rawObstruction = 5.0 * simulatedSwap.ObstructionFactor;
-                            double obstructionBonus = ((1 + horizontalOverlap) * (1 + rawObstruction)) - 1;
+                            double rawObstruction = 5.0 / (1.0 + Math.Pow(Math.E, 2.0 - 6.0 * simulatedSwap.ObstructionFactor));
+                            double obstructionBonus = horizontalOverlap + rawObstruction;
 
                             aimBonus += coordination_aim_max_bonus * coordinationFactor(ratio, coordination_aim_decay);
                             aimBonus += obstructionBonus * coordinationFactor(ratio, coordination_obstruction_decay);
