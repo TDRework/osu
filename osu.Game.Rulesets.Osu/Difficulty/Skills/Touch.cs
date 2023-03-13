@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Game.Rulesets.Difficulty.Preprocessing;
-using osu.Game.Rulesets.Difficulty.Utils;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Objects;
 using osu.Game.Rulesets.Osu.Difficulty.Evaluators;
@@ -18,19 +17,19 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
     /// </summary>
     public class Touch : OsuStrainSkill
     {
-        private const int L = 0;
-        private const int R = 1;
-        private const int MAX_POSSIBILITIES = 15;
+        private const int l = 0;
+        private const int r = 1;
+        private const int max_possibilities = 15;
 
         // Constants from aim and speed for standard gameplay
-        private const double aimSkillMultiplier = 23.55;
-        private const double aimStrainDecayBase = 0.15;
-        private const double speedSkillMultiplier = 1375;
-        private const double speedStrainDecayBase = 0.3;
+        private const double aim_skill_multiplier = 23.55;
+        private const double aim_strain_decay_base = 0.15;
+        private const double speed_skill_multiplier = 1375;
+        private const double speed_strain_decay_base = 0.3;
         private class Possibility
         {
-            private const int DIFFICULTY_OBJECTS_REQUIRED = 3;
-            private const int BEATMAP_OBJECTS_REQUIRED = 2;
+            private const int difficulty_objects_required = 3;
+            private const int beatmap_objects_required = 2;
             public double Probability;
             public double Aim { get; private set; }
             public double Speed { get; private set; }
@@ -45,16 +44,16 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 this.clockRate = clockRate;
                 this.withSliders = withSliders;
                 this.Probability = 1;
-                objects[L] = new List<DifficultyHitObject>();
-                objects[R] = new List<DifficultyHitObject>();
+                objects[l] = new List<DifficultyHitObject>();
+                objects[r] = new List<DifficultyHitObject>();
 
-                beatmap[L] = new List<HitObject>();
-                beatmap[R] = new List<HitObject>();
+                beatmap[l] = new List<HitObject>();
+                beatmap[r] = new List<HitObject>();
 
                 // Automatically assume the first note of a beatmap is hit with the left hand and the second note is hit with the right.
-                beatmap[L].Add(firstObject.LastObject);
-                beatmap[R].Add(firstObject.BaseObject);
-                lastHand = R;
+                beatmap[l].Add(firstObject.LastObject);
+                beatmap[r].Add(firstObject.BaseObject);
+                lastHand = r;
             }
             public Possibility(Possibility copy)
             {
@@ -65,17 +64,17 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 this.Aim = copy.Aim;
                 this.Speed = copy.Speed;
 
-                objects[L] = new List<DifficultyHitObject>(copy.objects[L]);
-                objects[R] = new List<DifficultyHitObject>(copy.objects[R]);
+                objects[l] = new List<DifficultyHitObject>(copy.objects[l]);
+                objects[r] = new List<DifficultyHitObject>(copy.objects[r]);
 
-                beatmap[L] = new List<HitObject>(copy.beatmap[L]);
-                beatmap[R] = new List<HitObject>(copy.beatmap[R]);
+                beatmap[l] = new List<HitObject>(copy.beatmap[l]);
+                beatmap[r] = new List<HitObject>(copy.beatmap[r]);
             }
             public void UpdateStrainValue(DifficultyHitObject current, int currentHand)
             {
                 double strainTime = ((OsuDifficultyHitObject)current).StrainTime;
-                Aim *= strainDecay(aimStrainDecayBase, strainTime);
-                Speed *= strainDecay(aimStrainDecayBase, strainTime);
+                Aim *= strainDecay(aim_strain_decay_base, strainTime);
+                Speed *= strainDecay(aim_strain_decay_base, strainTime);
 
                 double aimIfCurrentHand = aimStrainValueIf(current, currentHand);
                 double speedIfCurrentHand = speedStrainValueIf(current, currentHand);
@@ -104,11 +103,11 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 beatmap[currentHand].Add(current.BaseObject);
                 objects[currentHand].Add(getSimulatedObject(current, currentHand));
 
-                if (beatmap[currentHand].Count > BEATMAP_OBJECTS_REQUIRED)
-                    beatmap[currentHand].RemoveRange(0, beatmap[currentHand].Count - BEATMAP_OBJECTS_REQUIRED);
+                if (beatmap[currentHand].Count > beatmap_objects_required)
+                    beatmap[currentHand].RemoveRange(0, beatmap[currentHand].Count - beatmap_objects_required);
 
-                if (objects[currentHand].Count > DIFFICULTY_OBJECTS_REQUIRED)
-                    objects[currentHand].RemoveRange(0, objects[currentHand].Count - DIFFICULTY_OBJECTS_REQUIRED);
+                if (objects[currentHand].Count > difficulty_objects_required)
+                    objects[currentHand].RemoveRange(0, objects[currentHand].Count - difficulty_objects_required);
 
                 lastHand = currentHand;
             }
@@ -141,14 +140,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 if (angle != null)
                     obstructionBonus += 1.25 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
 
-                return AimEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), withSliders) * obstructionBonus * aimSkillMultiplier;
+                return AimEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), withSliders) * obstructionBonus * aim_skill_multiplier;
             }
             private double speedStrainValueIf(DifficultyHitObject current, int currentHand)
             {
                 double singletapMultiplier = 1;
                 if (currentHand == lastHand)
                     singletapMultiplier = 0.93; // Reduction in speed value for singletapping consecutive notes.
-                return singletapMultiplier * SpeedEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), true) * speedSkillMultiplier;
+                return singletapMultiplier * SpeedEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), true) * speed_skill_multiplier;
             }
             private double totalStrain(double aimStrain, double speedStrain) => Math.Pow(Math.Pow(aimStrain, 3.0 / 2.0) + Math.Pow(speedStrain, 3.0 / 2.0), 2.0 / 3.0);
         }
@@ -176,9 +175,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         {
             double timeDifference = time - current.Previous(0).StartTime;
             if (calculatingAim)
-                return weightedAim * strainDecay(aimStrainDecayBase, timeDifference);
+                return weightedAim * strainDecay(aim_strain_decay_base, timeDifference);
 
-            return rhythm * weightedSpeed * strainDecay(speedStrainDecayBase, timeDifference);
+            return rhythm * weightedSpeed * strainDecay(speed_strain_decay_base, timeDifference);
         }
 
         protected override double StrainValueAt(DifficultyHitObject current)
@@ -201,11 +200,11 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 var left = new Possibility(cur);
                 var right = new Possibility(cur);
 
-                left.UpdateStrainValue(current, L);
-                right.UpdateStrainValue(current, R);
+                left.UpdateStrainValue(current, l);
+                right.UpdateStrainValue(current, r);
 
-                left.UpdateHistory(current, L);
-                right.UpdateHistory(current, R);
+                left.UpdateHistory(current, l);
+                right.UpdateHistory(current, r);
 
                 newPossibilities.Add(left);
                 newPossibilities.Add(right);
@@ -215,7 +214,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             newPossibilities = newPossibilities.OrderByDescending(x => x.Probability).ToList();
             possibilities = new List<Possibility>();
 
-            int entries = Math.Min(newPossibilities.Count, MAX_POSSIBILITIES);
+            int entries = Math.Min(newPossibilities.Count, max_possibilities);
             double totalMostProbable = 0;
 
             for (int i = 0; i < entries; i++)
