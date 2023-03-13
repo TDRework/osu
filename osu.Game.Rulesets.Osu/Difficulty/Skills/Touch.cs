@@ -130,15 +130,15 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             {
                 double obstructionBonus = 1;
                 // Add a bonus for the hand co-ordination required to aim with both hands.
-                if (currentHand != lastHand)
+                if (currentHand != lastHand) {
                     obstructionBonus += 1.25;
 
-                // Add an obstrution bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
-
-                var simulatedSwap = getSimulatedSwapObject(current, currentHand);
-                double? angle = simulatedSwap.Angle;
-                if (angle != null)
-                    obstructionBonus += 1.25 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
+                    // Add an obstrution bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
+                    var simulatedSwap = getSimulatedSwapObject(current, currentHand);
+                    double? angle = simulatedSwap.Angle;
+                    if (angle != null)
+                        obstructionBonus += 1.25 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
+                }
 
                 return AimEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), withSliders) * obstructionBonus * aim_skill_multiplier;
             }
