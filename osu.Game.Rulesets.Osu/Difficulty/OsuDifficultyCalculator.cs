@@ -41,13 +41,21 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double speedRating = Math.Sqrt(skills[2].DifficultyValue()) * difficulty_multiplier;
             double speedNotes = ((Speed)skills[2]).RelevantNoteCount();
             double flashlightRating = Math.Sqrt(skills[3].DifficultyValue()) * difficulty_multiplier;
+        
 
             double sliderFactor = aimRating > 0 ? aimRatingNoSliders / aimRating : 1;
 
             if (mods.Any(m => m is OsuModTouchDevice))
             {
-                aimRating = Math.Pow(aimRating, 0.8);
-                flashlightRating = Math.Pow(flashlightRating, 0.8);
+                double touchAimRating = Math.Sqrt(skills[4].DifficultyValue()) * difficulty_multiplier;
+                double touchAimRatingNoSliders = Math.Sqrt(skills[5].DifficultyValue()) * difficulty_multiplier;
+                double touchSpeedRating = Math.Sqrt(skills[6].DifficultyValue()) * difficulty_multiplier;
+                double touchSpeedNotes = ((Touch)skills[6]).RelevantNoteCount();
+                sliderFactor = touchAimRating > 0? touchAimRatingNoSliders / touchAimRating : 1;
+                aimRating = touchAimRating;
+                speedRating = touchSpeedRating;
+                speedNotes = touchSpeedNotes;
+                flashlightRating *= aimRating > 0? touchAimRating / aimRating : 1;
             }
 
             if (mods.Any(h => h is OsuModRelax))
@@ -127,7 +135,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 new Aim(mods, true),
                 new Aim(mods, false),
                 new Speed(mods),
-                new Flashlight(mods)
+                new Flashlight(mods),
+                new Touch(mods, clockRate, true, true),
+                new Touch(mods, clockRate, false, true),
+                new Touch(mods, clockRate, true, false)
             };
         }
 
