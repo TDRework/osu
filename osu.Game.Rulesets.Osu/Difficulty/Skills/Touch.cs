@@ -130,7 +130,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             {
                 double obstructionBonus = 1;
                 // Add a bonus for the hand co-ordination required to aim with both hands.
-                if (currentHand != lastHand) {
+                if (currentHand != lastHand)
+                {
                     obstructionBonus += 1.25;
 
                     // Add an obstrution bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
