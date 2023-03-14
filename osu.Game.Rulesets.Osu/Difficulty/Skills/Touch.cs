@@ -19,6 +19,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
     {
         private const int l = 0;
         private const int r = 1;
+        private const int d = 2;
         private const int max_possibilities = 15;
 
         // Constants from aim and speed for standard gameplay
@@ -76,40 +77,65 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 Aim *= strainDecay(aim_strain_decay_base, strainTime);
                 Speed *= strainDecay(speed_strain_decay_base, strainTime);
 
-                double aimIfCurrentHand = aimStrainValueIf(current, currentHand);
-                double speedIfCurrentHand = speedStrainValueIf(current, currentHand);
+                double aimIfDrag = AimEvaluator.EvaluateDifficultyOf(current, withSliders) * aim_skill_multiplier;
+                double speedIfDrag = SpeedEvaluator.EvaluateDifficultyOf(current, false) * speed_skill_multiplier;
 
-                Aim += aimIfCurrentHand;
-                Speed += speedIfCurrentHand;
+                int relevantHand = currentHand == d ? lastHand : currentHand;
 
-                double aimIfOtherHand = aimStrainValueIf(current, otherHand(currentHand));
-                double speedIfOtherHand = speedStrainValueIf(current, otherHand(currentHand));
+                double aimIfCurrentHand = aimStrainValueIf(current, relevantHand);
+                double speedIfCurrentHand = speedStrainValueIf(current, relevantHand);
+
+                if (currentHand == d) 
+                {
+                    Aim += aimIfDrag;
+                    Speed += speedIfDrag;
+                }
+                else
+                {
+                    Aim += aimIfCurrentHand;
+                    Speed += speedIfCurrentHand;
+                }
+
+                double aimIfOtherHand = aimStrainValueIf(current, otherHand(relevantHand));
+                double speedIfOtherHand = speedStrainValueIf(current, otherHand(relevantHand));
 
                 double strainIfCurrentHand = totalStrain(aimIfCurrentHand, speedIfCurrentHand);
                 double strainIfOtherHand = totalStrain(aimIfOtherHand, speedIfOtherHand);
+                double strainIfDrag = totalStrain(aimIfDrag, speedIfDrag);
 
-                double probabilityCurrentHand = strainIfCurrentHand > 0 ? strainIfOtherHand / (strainIfCurrentHand + strainIfOtherHand) : 1;
+                double denominator = 2 * (Math.Pow(strainIfCurrentHand, 3) + Math.Pow(strainIfOtherHand, 3) + Math.Pow(strainIfDrag, 3));
 
-                // Curve probability to be closer to either 0 or 1.
-                if (probabilityCurrentHand <= 0.5)
-                    probabilityCurrentHand = 2 * Math.Pow(probabilityCurrentHand, 2);
+                double probabilityCurrentHand;
+                // Calculate probability using the cubed strains to bring closer to either 0 or 1.
+                if (currentHand == d)
+                    probabilityCurrentHand = denominator > 0 ? (Math.Pow(strainIfCurrentHand, 3) + Math.Pow(strainIfOtherHand, 3)) / denominator : 1.0 / 3.0;
                 else
-                    probabilityCurrentHand = 1 - 2 * Math.Pow(1 - probabilityCurrentHand, 2);
+                    probabilityCurrentHand = denominator > 0 ? (Math.Pow(strainIfOtherHand, 3) + Math.Pow(strainIfDrag, 3)) / denominator : 1.0 / 3.0;
 
                 Probability *= probabilityCurrentHand;
             }
             public void UpdateHistory(DifficultyHitObject current, int currentHand)
             {
-                beatmap[currentHand].Add(current.BaseObject);
-                objects[currentHand].Add(getSimulatedObject(current, currentHand));
+                int relevantHand = currentHand == d ? lastHand : currentHand;
 
-                if (beatmap[currentHand].Count > beatmap_objects_required)
-                    beatmap[currentHand].RemoveRange(0, beatmap[currentHand].Count - beatmap_objects_required);
+                if (currentHand == d) 
+                {
+                    beatmap[lastHand].Add(current.BaseObject);
+                    objects[lastHand].Add(current);
+                } 
+                else 
+                {
+                    beatmap[currentHand].Add(current.BaseObject);
+                    objects[currentHand].Add(getSimulatedObject(current, currentHand));
+                }
 
-                if (objects[currentHand].Count > difficulty_objects_required)
-                    objects[currentHand].RemoveRange(0, objects[currentHand].Count - difficulty_objects_required);
+                if (beatmap[relevantHand].Count > beatmap_objects_required)
+                    beatmap[relevantHand].RemoveRange(0, beatmap[relevantHand].Count - beatmap_objects_required);
 
-                lastHand = currentHand;
+                if (objects[relevantHand].Count > difficulty_objects_required)
+                    objects[relevantHand].RemoveRange(0, objects[relevantHand].Count - difficulty_objects_required);
+
+                lastHand = relevantHand;
             }
             private OsuDifficultyHitObject getSimulatedObject(DifficultyHitObject current, int currentHand)
             {
@@ -132,7 +158,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 // Add a bonus for the hand co-ordination required to aim with both hands.
                 if (currentHand != lastHand)
                 {
-                    obstructionBonus += 1.25;
+                    obstructionBonus += 1;
 
                     // Add an obstrution bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
                     var simulatedSwap = getSimulatedSwapObject(current, currentHand);
@@ -145,7 +171,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             }
             private double speedStrainValueIf(DifficultyHitObject current, int currentHand)
             {
-                return SpeedEvaluator.EvaluateDifficultyOf(current, false) * speed_skill_multiplier;
+                double singletapMultiplier = 1;
+                if (currentHand == lastHand)
+                    singletapMultiplier = 0.9; // Reduction in speed value for singletapping consecutive notes.
+                return singletapMultiplier * SpeedEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), true) * speed_skill_multiplier;
             }
             private double totalStrain(double aimStrain, double speedStrain) => Math.Pow(Math.Pow(aimStrain, 3.0 / 2.0) + Math.Pow(speedStrain, 3.0 / 2.0), 2.0 / 3.0);
         }
@@ -197,15 +226,19 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             {
                 var left = new Possibility(cur);
                 var right = new Possibility(cur);
+                var drag = new Possibility(cur);
 
                 left.UpdateStrainValue(current, l);
                 right.UpdateStrainValue(current, r);
+                drag.UpdateStrainValue(current, d);
 
                 left.UpdateHistory(current, l);
                 right.UpdateHistory(current, r);
+                drag.UpdateHistory(current, d);
 
                 newPossibilities.Add(left);
                 newPossibilities.Add(right);
+                newPossibilities.Add(drag);
             }
 
             // Only keep the most probable possibilities.
