@@ -74,7 +74,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             {
                 double strainTime = ((OsuDifficultyHitObject)current).StrainTime;
                 Aim *= strainDecay(aim_strain_decay_base, strainTime);
-                Speed *= strainDecay(aim_strain_decay_base, strainTime);
+                Speed *= strainDecay(speed_strain_decay_base, strainTime);
 
                 double aimIfCurrentHand = aimStrainValueIf(current, currentHand);
                 double speedIfCurrentHand = speedStrainValueIf(current, currentHand);
