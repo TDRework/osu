@@ -145,10 +145,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             }
             private double speedStrainValueIf(DifficultyHitObject current, int currentHand)
             {
-                double singletapMultiplier = 1;
-                if (currentHand == lastHand)
-                    singletapMultiplier = 0.93; // Reduction in speed value for singletapping consecutive notes.
-                return singletapMultiplier * SpeedEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), true) * speed_skill_multiplier;
+                return SpeedEvaluator.EvaluateDifficultyOf(current, false) * speed_skill_multiplier;
             }
             private double totalStrain(double aimStrain, double speedStrain) => Math.Pow(Math.Pow(aimStrain, 3.0 / 2.0) + Math.Pow(speedStrain, 3.0 / 2.0), 2.0 / 3.0);
         }
