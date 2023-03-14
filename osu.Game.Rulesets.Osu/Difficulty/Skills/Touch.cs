@@ -71,59 +71,41 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 beatmap[l] = new List<HitObject>(copy.beatmap[l]);
                 beatmap[r] = new List<HitObject>(copy.beatmap[r]);
             }
-            public void UpdateStrainValue(DifficultyHitObject current, int currentHand)
+            public double UpdateStrainValue(DifficultyHitObject current, int currentHand)
             {
                 double strainTime = ((OsuDifficultyHitObject)current).StrainTime;
                 Aim *= strainDecay(aim_strain_decay_base, strainTime);
                 Speed *= strainDecay(speed_strain_decay_base, strainTime);
 
-                double aimIfDrag = AimEvaluator.EvaluateDifficultyOf(current, withSliders) * aim_skill_multiplier;
-                double speedIfDrag = SpeedEvaluator.EvaluateDifficultyOf(current, false) * speed_skill_multiplier;
+                double currentAim;
+                double currentSpeed;
 
-                int relevantHand = currentHand == d ? lastHand : currentHand;
-
-                double aimIfCurrentHand = aimStrainValueIf(current, relevantHand);
-                double speedIfCurrentHand = speedStrainValueIf(current, relevantHand);
-
-                if (currentHand == d) 
-                {
-                    Aim += aimIfDrag;
-                    Speed += speedIfDrag;
-                }
-                else
-                {
-                    Aim += aimIfCurrentHand;
-                    Speed += speedIfCurrentHand;
-                }
-
-                double aimIfOtherHand = aimStrainValueIf(current, otherHand(relevantHand));
-                double speedIfOtherHand = speedStrainValueIf(current, otherHand(relevantHand));
-
-                double strainIfCurrentHand = totalStrain(aimIfCurrentHand, speedIfCurrentHand);
-                double strainIfOtherHand = totalStrain(aimIfOtherHand, speedIfOtherHand);
-                double strainIfDrag = totalStrain(aimIfDrag, speedIfDrag);
-
-                double denominator = 2 * (Math.Pow(strainIfCurrentHand, 3) + Math.Pow(strainIfOtherHand, 3) + Math.Pow(strainIfDrag, 3));
-
-                double probabilityCurrentHand;
-                // Calculate probability using the cubed strains to bring closer to either 0 or 1.
                 if (currentHand == d)
-                    probabilityCurrentHand = denominator > 0 ? (Math.Pow(strainIfCurrentHand, 3) + Math.Pow(strainIfOtherHand, 3)) / denominator : 1.0 / 3.0;
+                {
+                    currentAim = AimEvaluator.EvaluateDifficultyOf(current, withSliders) * aim_skill_multiplier;
+                    currentSpeed = SpeedEvaluator.EvaluateDifficultyOf(current, false) * speed_skill_multiplier;
+                }
                 else
-                    probabilityCurrentHand = denominator > 0 ? (Math.Pow(strainIfOtherHand, 3) + Math.Pow(strainIfDrag, 3)) / denominator : 1.0 / 3.0;
+                {
+                    currentAim = aimStrainValueIf(current, currentHand);
+                    currentSpeed = speedStrainValueIf(current, currentHand);
+                }
 
-                Probability *= probabilityCurrentHand;
+                Aim += currentAim;
+                Speed += currentSpeed;
+
+                return totalStrain(currentAim, currentSpeed);
             }
             public void UpdateHistory(DifficultyHitObject current, int currentHand)
             {
                 int relevantHand = currentHand == d ? lastHand : currentHand;
 
-                if (currentHand == d) 
+                if (currentHand == d)
                 {
                     beatmap[lastHand].Add(current.BaseObject);
                     objects[lastHand].Add(current);
-                } 
-                else 
+                }
+                else
                 {
                     beatmap[currentHand].Add(current.BaseObject);
                     objects[currentHand].Add(getSimulatedObject(current, currentHand));
@@ -158,13 +140,13 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 // Add a bonus for the hand co-ordination required to aim with both hands.
                 if (currentHand != lastHand)
                 {
-                    obstructionBonus += 1;
+                    obstructionBonus += 1.1;
 
                     // Add an obstrution bonus if the most recent instance of the "other hand" is in between the current object and the previous object with the actual hand
                     var simulatedSwap = getSimulatedSwapObject(current, currentHand);
                     double? angle = simulatedSwap.Angle;
                     if (angle != null)
-                        obstructionBonus += 1.25 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
+                        obstructionBonus += 1.5 / (1 + Math.Pow(Math.E, -(angle.Value * 180 / Math.PI - 108) / 9));
                 }
 
                 return AimEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), withSliders) * obstructionBonus * aim_skill_multiplier;
@@ -173,7 +155,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             {
                 double singletapMultiplier = 1;
                 if (currentHand == lastHand)
-                    singletapMultiplier = 0.9; // Reduction in speed value for singletapping consecutive notes.
+                    singletapMultiplier = 0.93; // Reduction in speed value for singletapping consecutive notes.
                 return singletapMultiplier * SpeedEvaluator.EvaluateDifficultyOf(getSimulatedObject(current, currentHand), true) * speed_skill_multiplier;
             }
             private double totalStrain(double aimStrain, double speedStrain) => Math.Pow(Math.Pow(aimStrain, 3.0 / 2.0) + Math.Pow(speedStrain, 3.0 / 2.0), 2.0 / 3.0);
@@ -228,9 +210,18 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 var right = new Possibility(cur);
                 var drag = new Possibility(cur);
 
-                left.UpdateStrainValue(current, l);
-                right.UpdateStrainValue(current, r);
-                drag.UpdateStrainValue(current, d);
+                double leftStrain = left.UpdateStrainValue(current, l);
+                double rightStrain = right.UpdateStrainValue(current, r);
+                double dragStrain = drag.UpdateStrainValue(current, d);
+
+                double leftWeight = Math.Sqrt(rightStrain * dragStrain);
+                double rightWeight = Math.Sqrt(leftStrain * dragStrain);
+                double dragWeight = Math.Sqrt(leftStrain * rightStrain);
+                double sum = leftWeight + rightWeight + dragWeight;
+
+                left.Probability *= sum > 0 ? leftWeight / sum : 1.0 / 3.0;
+                right.Probability *= sum > 0 ? rightWeight / sum : 1.0 / 3.0;
+                drag.Probability *= sum > 0 ? dragWeight / sum : 1.0 / 3.0;
 
                 left.UpdateHistory(current, l);
                 right.UpdateHistory(current, r);
